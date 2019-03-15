@@ -45,6 +45,7 @@
   </PropertyGroup>
   <ItemGroup>
     <ClInclude Include="..\MQ2Plugin.h" />
+    <ClInclude Include="Chase.h" />
     <ClInclude Include="MQ2Stats.h" />
     <ClInclude Include="SpellQueue.h" />
   </ItemGroup>

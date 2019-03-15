@@ -1,5 +1,7 @@
 
 #include "../MQ2Plugin.h"
+
+#include "Chase.h"
 #include "SpellQueue.h"
 
 #include <map>
@@ -41,17 +43,41 @@ public:
 			spawn.zone_id       = std::stoi(tokens[1]);
 			spawn.zoning        = std::stoi(tokens[2]);
 			spawn.level         = std::stoi(tokens[3]);
-			spawn.x             = std::stof(tokens[4]);
-			spawn.y             = std::stof(tokens[5]);
-			spawn.z             = std::stof(tokens[6]);
-			spawn.hp_percent    = std::stoi(tokens[7]);
-			spawn.hp_missing    = std::stoi(tokens[8]);
-			spawn.mana_percent  = std::stoi(tokens[9]);
-			spawn.aggro_percent = std::stoi(tokens[10]);
+			spawn.heading       = std::stof(tokens[4]);
+			spawn.angle         = std::stof(tokens[5]);
+			spawn.x             = std::stof(tokens[6]);
+			spawn.y             = std::stof(tokens[7]);
+			spawn.z             = std::stof(tokens[8]);
+			spawn.hp_percent    = std::stoi(tokens[9]);
+			spawn.hp_missing    = std::stoi(tokens[10]);
+			spawn.mana_percent  = std::stoi(tokens[11]);
+			spawn.aggro_percent = std::stoi(tokens[12]);
 		}
-		else
+		else if(tokens.size() >= 3)
 		{
+			RequestType type = static_cast<RequestType>(std::stoi(tokens[0]));
+			switch(type)
+			{
+			case RequestType::Push:
+
+				m_p_spell_queue->Push(tokens[1], tokens[2]);
+
+			case RequestType::Pop:
+
+				m_p_spell_queue->Remove(tokens[1], tokens[2]);
+
+			default:
+
+				WriteChatf("Unknown spell command received: %s", message.c_str());
+			}
 		}
+	}
+
+	inline void ClearMovement()
+	{
+		m_p_target = nullptr;
+		m_p_chase->ClearAll();
+		m_p_chase->DoStop();
 	}
 
 private:
@@ -62,6 +88,8 @@ private:
 		DWORD zone_id;
 		bool zoning;
 		DWORD level;
+		FLOAT heading;
+		FLOAT angle;
 		FLOAT x;
 		FLOAT y;
 		FLOAT z;
@@ -71,6 +99,15 @@ private:
 		DWORD aggro_percent;
 	};
 
+	struct Position
+	{
+		FLOAT x;
+		FLOAT y;
+		FLOAT z;
+		FLOAT heading;
+		FLOAT look;
+	};
+
 	enum StatType
 	{
 		ID,
@@ -78,6 +115,8 @@ private:
 		InZone,
 		Zoning,
 		Level,
+		Heading,
+		Angle,
 		X,
 		Y,
 		Z,
@@ -91,7 +130,7 @@ private:
 		Names,
 		Active,
 		Combat,
-		FollowID,
+		Following,
 		EngageID,
 		LowestID,
 		FurthestID,
@@ -102,6 +141,12 @@ private:
 		CorpseCount,
 	};
 
+	enum RequestType
+	{
+		Push,
+		Pop
+	};
+
 	inline void Populate(SpawnData& client)
 	{
 		PSPAWNINFO p_spawn = GetCharInfo()->pSpawn; // Populate with local information
@@ -110,6 +155,8 @@ private:
 		client.zone_id       = GetCharInfo()->zoneId;
 		client.zoning        = !gbInZone;
 		client.level         = p_spawn->Level;
+		client.heading       = p_spawn->Heading;
+		client.angle         = p_spawn->CameraAngle;
 		client.x             = p_spawn->X;
 		client.y             = p_spawn->Y;
 		client.z             = p_spawn->Z;
@@ -125,11 +172,13 @@ private:
 		{
 			sprintf_s(m_send_buffer,
 					  MAX_STRING,
-					  "[NS]|%d %d %d %d %.2f %.2f %.2f %d %d %d %d",
+					  "[NS]|%d %d %d %d %.2f %.2f %.2f %.2f %.2f %d %d %d %d",
 					  client.spawn_id,
 					  client.zone_id,
 					  client.zoning ? 1 : 0,
 					  client.level,
+					  client.heading,
+					  client.angle,
 					  client.x,
 					  client.y,
 					  client.z,
@@ -144,52 +193,18 @@ private:
 
 	inline int Compare(SpawnData& left, SpawnData& right)
 	{
-		if(left.spawn_id != right.spawn_id)
-		{
-			return -1;
-		}
-
-		if(left.zone_id != right.zone_id)
-		{
-			return -1;
-		}
-
-		if(left.zoning != right.zoning)
-		{
-			return -1;
-		}
-
-		if(left.level != right.level)
-		{
-			return -1;
-		}
-
-		if(fabs(left.x - right.x) > 0.5)
-		{
-			return -1;
-		}
-
-		if(fabs(left.y - right.y) > 0.5)
-		{
-			return -1;
-		}
-
-		if(fabs(left.z - right.z) > 0.5)
-		{
-			return -1;
-		}
-
-		if(left.hp_percent != right.hp_percent)
-		{
-			return -1;
-		}
-
-		if(left.mana_percent != right.mana_percent)
-		{
-			return -1;
-		}
-
-		if(left.aggro_percent != right.aggro_percent)
+		if(left.spawn_id != right.spawn_id
+		   || left.zone_id != right.zone_id
+		   || left.zoning != right.zoning
+		   || left.level != right.level
+		   || fabs(left.heading - right.heading) > 0.5
+		   || fabs(left.angle - right.angle) > 0.5
+		   || fabs(left.x - right.x) > 0.5
+		   || fabs(left.y - right.y) > 0.5
+		   || fabs(left.z - right.z) > 0.5
+		   || left.hp_percent != right.hp_percent
+		   || left.mana_percent != right.mana_percent
+		   || left.aggro_percent != right.aggro_percent)
 		{
 			return -1;
 		}
@@ -220,6 +235,29 @@ private:
 		if(nullptr != p_confirm && p_confirm->dShow == 1) // Visible
 		{
 			SendWndClick2(p_confirm->GetChildItem("CD_Yes_Button"), "leftmouseup");
+		}
+	}
+
+	inline void HandleCasting()
+	{
+		if(nullptr != m_p_cast)
+		{
+		}
+	}
+
+	inline void HandleMovement()
+	{
+		if(nullptr != m_p_chase && nullptr != m_p_target)
+		{
+			//if(!gbInZone || !GetCharInfo() || !GetCharInfo()->pSpawn || !AdvPathStatus)
+			//    return;
+			//
+			//         if(FollowState == FOLLOW_FOLLOWING && StatusState == STATUS_ON)
+			//	FollowSpawn();
+			//
+			//MeMonitorX = GetCharInfo()->pSpawn->X; // MeMonitorX monitor your self
+			//MeMonitorY = GetCharInfo()->pSpawn->Y; // MeMonitorY monitor your self
+			//MeMonitorZ = GetCharInfo()->pSpawn->Z; // MeMonitorZ monitor your self
 		}
 	}
 
@@ -265,7 +303,7 @@ private:
 		return false;
 	}
 
-	inline bool IsClient(std::string name)
+	inline bool IsClient(std::string& name)
 	{
 		return m_clients.find(name) != m_clients.end();
 	}
@@ -342,13 +380,17 @@ private:
 		return count;
 	}
 
-	typedef VOID(__cdecl* SendFunction)(PCHAR);
+	typedef VOID(__cdecl* NetSendFunction)(PCHAR);
+	typedef VOID(__cdecl* CastFunction)(PSPAWNINFO, PCHAR);
 
-	SendFunction m_p_send;
 	char m_send_buffer[MAX_STRING];
+	NetSendFunction m_p_send;
+	CastFunction m_p_cast;
 	SpawnData* m_p_data_index;
 	SpellQueue* m_p_spell_queue;
-	std::clock_t m_last_pulse;
-	std::map<std::string, SpawnData> m_clients;
+	Chase* m_p_chase;
 	SpawnData* m_p_target;
+	std::map<std::string, SpawnData> m_clients;
+	std::vector<std::clock_t> m_time_counts;
+	std::clock_t m_last_pulse;
 };

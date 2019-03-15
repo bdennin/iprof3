@@ -42,6 +42,12 @@ void SpellQueue::Push(SpellType& type, std::string& target_name)
 	}
 }
 
+void SpellQueue::Push(std::string& type_name, std::string& target_name)
+{
+	SpellType type = ToType(type_name);
+	Push(type, target_name);
+}
+
 void SpellQueue::Pop()
 {
 	if(!m_queued.empty())
@@ -73,6 +79,12 @@ void SpellQueue::Remove(SpellType& type, std::string& target_name)
 			}
 		}
 	}
+}
+
+void SpellQueue::Remove(std::string& type_name, std::string& target_name)
+{
+	SpellType type = ToType(type_name);
+	Remove(type, target_name);
 }
 
 void SpellQueue::IntializeStructures()
@@ -177,7 +189,7 @@ void SpellQueue::AddSpell(PSPELL p_spell)
 	SpellCategory category       = static_cast<SpellCategory>(p_spell->Category);
 	SpellSubCategory subcategory = static_cast<SpellSubCategory>(p_spell->Subcategory);
 
-    switch(category)
+	switch(category)
 	{
 	case SpellCategory::Auras:
 	{
@@ -293,7 +305,7 @@ void SpellQueue::AddSpell(PSPELL p_spell)
 		{
 			break;
 		}
-		case SpellSubCategory::Summoned:  // Only two that actually
+		case SpellSubCategory::Summoned: // Only two that actually
 		{
 			break;
 		}

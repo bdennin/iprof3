@@ -68,8 +68,10 @@ public:
 
 	SpellData* Front();
 	void Push(SpellType& type, std::string& target_name);
+	void Push(std::string& type_name, std::string& target_name);
 	void Pop();
 	void Remove(SpellType& type, std::string& target_name);
+	void Remove(std::string& type_name, std::string& target_name);
 
 private:
 	enum class SpellCategory

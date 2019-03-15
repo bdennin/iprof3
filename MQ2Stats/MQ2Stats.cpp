@@ -39,15 +39,25 @@ inline bool MQ2Stats::Contains(std::string& words, std::string& match)
 MQ2Stats::MQ2Stats()
 	: MQ2Type("Stats")
 	, m_p_send(nullptr)
+	, m_p_cast(nullptr)
 	, m_p_data_index(nullptr)
+	, m_p_spell_queue(nullptr)
+	, m_p_chase(nullptr)
 	, m_p_target(nullptr)
-	, m_last_pulse(0)
 	, m_clients()
+	, m_time_counts(32)
+	, m_last_pulse(0)
 {
+	m_p_spell_queue = new SpellQueue();
+	m_p_chase       = new Chase();
+
+	// Indexables
 	TypeMember(ZoneID);
 	TypeMember(InZone);
 	TypeMember(Zoning);
 	TypeMember(Level);
+	TypeMember(Heading);
+	TypeMember(Angle);
 	TypeMember(X);
 	TypeMember(Y);
 	TypeMember(Z);
@@ -57,11 +67,12 @@ MQ2Stats::MQ2Stats()
 	TypeMember(Mana);
 	TypeMember(Aggro);
 
+	// Globals
 	TypeMember(DumpSpell);
 	TypeMember(Names);
 	TypeMember(Active);
 	TypeMember(Combat);
-	TypeMember(FollowID);
+	TypeMember(Following);
 	TypeMember(EngageID);
 	TypeMember(LowestID);
 	TypeMember(FurthestID);
@@ -74,6 +85,8 @@ MQ2Stats::MQ2Stats()
 
 MQ2Stats::~MQ2Stats()
 {
+	delete m_p_chase;
+	delete m_p_spell_queue;
 }
 
 void MQ2Stats::Pulse()
@@ -90,7 +103,21 @@ void MQ2Stats::Pulse()
 
 			if(nullptr != p_plugin)
 			{
-				m_p_send = (SendFunction)GetProcAddress(p_plugin->hModule, "NetBotSendMsg");
+				m_p_send = (NetSendFunction)GetProcAddress(p_plugin->hModule, "NetBotSendMsg");
+			}
+		}
+
+		if(nullptr == m_p_cast)
+		{
+			PMQPLUGIN p_plugin = pPlugins;
+			while(p_plugin && _strnicmp(p_plugin->szFilename, "MQ2Cast", 8))
+			{
+				p_plugin = p_plugin->pNext;
+			}
+
+			if(nullptr != p_plugin)
+			{
+				m_p_cast = (CastFunction)GetProcAddress(p_plugin->hModule, "CastCommand");
 			}
 		}
 
@@ -102,15 +129,17 @@ void MQ2Stats::Pulse()
 
 				SpawnData current;
 				Populate(current);
-				
-                SpawnData cached = m_clients[GetCharInfo()->Name];
 
-                if(Compare(current, cached) != 0)
-                {
-                    PublishMessage(current);
-                }
-                
+				SpawnData cached = m_clients[GetCharInfo()->Name];
+
+				if(Compare(current, cached) != 0)
+				{
+					PublishMessage(current);
+				}
+
 				HandleEvents();
+				HandleCasting();
+				HandleMovement();
 			}
 		}
 	}
@@ -134,6 +163,9 @@ void MQ2Stats::Command(PCHAR p_line)
 	static std::string queue   = "queue";
 	static std::string missing = "missing";
 	static std::string corpse  = "corpse";
+	static std::string chase   = "chase";
+	static std::string on      = "on";
+	static std::string off     = "off";
 
 	Split(std::string(p_line), args);
 
@@ -143,8 +175,13 @@ void MQ2Stats::Command(PCHAR p_line)
 
 		if(Contains(command, queue) && args.size() >= 3)
 		{
-			std::string& spell_type  = args[1];
+			std::string& type_name   = args[1];
 			std::string& target_name = args[2];
+
+			if(nullptr != m_p_spell_queue)
+			{
+				m_p_spell_queue->Push(type_name, target_name);
+			}
 		}
 		else if(Contains(command, missing))
 		{
@@ -171,8 +208,8 @@ void MQ2Stats::Command(PCHAR p_line)
 			}
 		}
 		else if(Contains(command, corpse))
-        {
-            char exec[MAX_STRING];
+		{
+			char exec[MAX_STRING];
 
 			for(size_t i = 0; i < gSpawnCount && EQP_DistArray[i].Value.Float < 100; i++)
 			{
@@ -198,6 +235,32 @@ void MQ2Stats::Command(PCHAR p_line)
 					default:
 						break;
 					}
+				}
+			}
+		}
+		else if(Contains(command, chase) && args.size() >= 2)
+		{
+			if(nullptr != m_p_chase)
+			{
+				std::string& enable = args[1];
+
+				if(Contains(enable, on) && args.size() >= 3)
+				{
+					std::string& target = args[2];
+
+					auto it = m_clients.find(target);
+
+					if(it != m_clients.end())
+					{
+						if(IsClientInZone(&(it->second)))
+						{
+							m_p_target = &it->second;
+						}
+					}
+				}
+				else if(Contains(enable, off))
+				{
+					p_stats->ClearMovement();
 				}
 			}
 		}
@@ -240,6 +303,18 @@ bool MQ2Stats::GetMember(MQ2VARPTR p_var, PCHAR Member, PCHAR Index, MQ2TYPEVAR&
 
 				Dest.Type  = pIntType;
 				Dest.DWord = m_p_data_index->level;
+				return true;
+
+			case Heading:
+
+				Dest.Type  = pFloatType;
+				Dest.Float = m_p_data_index->heading;
+				return true;
+
+			case Angle:
+
+				Dest.Type  = pFloatType;
+				Dest.Float = m_p_data_index->angle;
 				return true;
 
 			case X:
@@ -327,20 +402,10 @@ bool MQ2Stats::GetMember(MQ2VARPTR p_var, PCHAR Member, PCHAR Index, MQ2TYPEVAR&
 			Dest.Type  = pIntType;
 			Dest.DWord = gbInForeground ? 1 : 0;
 			return true;
-			/*
-			case FollowID:
 
-				Dest.Type  = pIntType;
-				Dest.DWord = m_follow_id;
-				return true;
+		case Following:
 
-			case EngageID:
-
-				Dest.Type  = pIntType;
-
-				Dest.DWord = m_engage_id;
-				return true;
-*/
+			return false;
 
 		case Combat:
 		{
@@ -554,12 +619,20 @@ PLUGIN_API VOID OnNetBotMSG(PCHAR name, PCHAR message)
 	}
 }
 
-// This is called every time MQ pulses
 PLUGIN_API VOID OnPulse(VOID)
 {
 	if(nullptr != p_stats)
 	{
 		p_stats->Pulse();
+	}
+}
+
+// This is called when we receive the EQ_END_ZONE packet is received
+PLUGIN_API void OnEndZone(void)
+{
+	if(nullptr != p_stats)
+	{
+		p_stats->ClearMovement();
 	}
 }
 
@@ -649,12 +722,3 @@ PLUGIN_API VOID OnPulse(VOID)
 //{
 //}
 
-//// This is called when we receive the EQ_END_ZONE packet is received
-//PLUGIN_API VOID OnEndZone(VOID)
-//{
-//}
-//// This is called when pChar!=pCharOld && We are NOT zoning
-//// honestly I have no idea if its better to use this one or EndZone (above)
-//PLUGIN_API VOID Zoned(VOID)
-//{
-//}
