@@ -33,10 +33,10 @@ public:
 		Cannibalize,
 		Haste,
 		Aegolism,
-        Symbol,
-        Protection,
-        Focus,
-        Toughness, // remove
+		Symbol,
+		Protection,
+		Focus,
+		Toughness, // remove
 		Statistic, // AC, charisma, wisdom, etc.
 		DoT,
 		Nuke,
@@ -57,10 +57,10 @@ public:
 		std::string target_name;
 		std::clock_t time_ms;
 
-        bool operator<(SpellData& other)
-        {
+		bool operator<(SpellData& other)
+		{
 			return type < other.type;
-        }
+		}
 	};
 
 	SpellQueue();
@@ -167,6 +167,7 @@ private:
 		Stamina         = 94,
 		Strength        = 96,
 		Stun            = 97,
+		SummonAir       = 98,
 		SummonAnimation = 99,
 		SummonFamiliar  = 101,
 		SummonUndead    = 103,
@@ -190,6 +191,7 @@ private:
 	inline void IntializeStructures();
 	inline void ParseSpellBook();
 	inline void AddSpell(PSPELL p_spell);
+	inline void PrintNack(PSPELL p_spell);
 
 	//
 	// Fetches a spell from a spell type.

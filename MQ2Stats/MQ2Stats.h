@@ -8,6 +8,25 @@
 #include <string>
 #include <vector>
 
+class FunctionTimer
+{
+public:
+	FunctionTimer(std::clock_t& clock_count)
+		: m_clock_count(clock_count)
+	{
+		m_clock_start = std::clock();
+	}
+
+	~FunctionTimer()
+	{
+		m_clock_count += std::clock() - m_clock_start;
+	}
+
+private:
+	std::clock_t m_clock_start;
+	std::clock_t& m_clock_count;
+};
+
 class MQ2Stats : public MQ2Type
 {
 public:
@@ -19,8 +38,12 @@ public:
 	MQ2Stats();
 	~MQ2Stats();
 	void Pulse();
+	void CommandDrag(PCHAR p_line);
+	void CommandDumpSpawn(PCHAR p_line);
+	void CommandMissing();
+	void CommandPush(PCHAR p_line);
+	void CommandRunTimes();
 	void SetClientIndex(PCHAR index);
-	void Command(PCHAR p_line);
 	bool GetMember(MQ2VARPTR p_var, PCHAR Member, PCHAR Index, MQ2TYPEVAR& Dest);
 	bool ToString(MQ2VARPTR p_var, PCHAR p_dest);
 	bool FromData(MQ2VARPTR& p_var, MQ2TYPEVAR& src);
@@ -28,6 +51,8 @@ public:
 
 	inline void ParseMessage(std::string name, std::string message)
 	{
+		FunctionTimer timer(m_time_counts[__FUNCTION__]);
+
 		message = message.substr(5); // Remove header [NB]|
 
 		std::vector<std::string> tokens;
@@ -49,26 +74,35 @@ public:
 			spawn.y             = std::stof(tokens[7]);
 			spawn.z             = std::stof(tokens[8]);
 			spawn.hp_percent    = std::stoi(tokens[9]);
-			spawn.hp_missing    = std::stoi(tokens[10]);
+			spawn.hp_deficit    = std::stoi(tokens[10]);
 			spawn.mana_percent  = std::stoi(tokens[11]);
 			spawn.aggro_percent = std::stoi(tokens[12]);
 		}
 		else if(tokens.size() >= 3)
 		{
 			RequestType type = static_cast<RequestType>(std::stoi(tokens[0]));
+
 			switch(type)
 			{
-			case RequestType::Push:
-
-				m_p_spell_queue->Push(tokens[1], tokens[2]);
-
-			case RequestType::Pop:
+			case RequestType::PopSpell:
 
 				m_p_spell_queue->Remove(tokens[1], tokens[2]);
+				break;
+
+			case RequestType::PushSpell:
+
+				m_p_spell_queue->Push(tokens[1], tokens[2]);
+				break;
+
+			case RequestType::Refresh:
+
+				m_force_refresh = true;
+				break;
 
 			default:
 
-				WriteChatf("Unknown spell command received: %s", message.c_str());
+				WriteChatf("Unknown command received: %s", message.c_str());
+				break;
 			}
 		}
 	}
@@ -94,18 +128,9 @@ private:
 		FLOAT y;
 		FLOAT z;
 		DWORD hp_percent;
-		DWORD hp_missing;
+		DWORD hp_deficit;
 		DWORD mana_percent;
 		DWORD aggro_percent;
-	};
-
-	struct Position
-	{
-		FLOAT x;
-		FLOAT y;
-		FLOAT z;
-		FLOAT heading;
-		FLOAT look;
 	};
 
 	enum StatType
@@ -126,7 +151,6 @@ private:
 		Mana,
 		Aggro,
 
-		DumpSpell,
 		Names,
 		Active,
 		Combat,
@@ -136,38 +160,44 @@ private:
 		FurthestID,
 		GroupHP,
 		AggroList,
-		AggroCount,
 		CorpseList,
-		CorpseCount,
+		RunTimes,
+		DumpData,
 	};
 
 	enum RequestType
 	{
-		Push,
-		Pop
+		PopSpell,
+		PushSpell,
+		Refresh,
 	};
 
 	inline void Populate(SpawnData& client)
 	{
-		PSPAWNINFO p_spawn = GetCharInfo()->pSpawn; // Populate with local information
+		FunctionTimer timer(m_time_counts[__FUNCTION__]);
 
-		client.spawn_id      = p_spawn->SpawnID;
-		client.zone_id       = GetCharInfo()->zoneId;
+		PCHARINFO p_char   = GetCharInfo();
+		PSPAWNINFO p_spawn = (nullptr != p_char) ? p_char->pSpawn : nullptr;
+
+		client.spawn_id      = (nullptr != p_spawn) ? p_spawn->SpawnID : 0;
+		client.zone_id       = (nullptr != p_char) ? p_char->zoneId : 0;
 		client.zoning        = !gbInZone;
-		client.level         = p_spawn->Level;
-		client.heading       = p_spawn->Heading;
-		client.angle         = p_spawn->CameraAngle;
-		client.x             = p_spawn->X;
-		client.y             = p_spawn->Y;
-		client.z             = p_spawn->Z;
-		client.hp_percent    = static_cast<DWORD>(static_cast<FLOAT>(p_spawn->HPCurrent) / static_cast<FLOAT>(p_spawn->HPMax) * 100);
-		client.hp_missing    = p_spawn->HPCurrent - p_spawn->HPMax;
-		client.mana_percent  = static_cast<DWORD>(static_cast<FLOAT>(p_spawn->ManaCurrent) / static_cast<FLOAT>(p_spawn->ManaMax) * 100);
+		client.level         = (nullptr != p_spawn) ? p_spawn->Level : m_p_self->level;
+		client.heading       = (nullptr != p_spawn) ? p_spawn->Heading : m_p_self->heading;
+		client.angle         = (nullptr != p_spawn) ? p_spawn->CameraAngle : m_p_self->angle;
+		client.x             = (nullptr != p_spawn) ? p_spawn->X : m_p_self->x;
+		client.y             = (nullptr != p_spawn) ? p_spawn->Y : m_p_self->y;
+		client.z             = (nullptr != p_spawn) ? p_spawn->Z : m_p_self->z;
+		client.hp_percent    = (nullptr != p_spawn) ? static_cast<DWORD>(static_cast<FLOAT>(p_spawn->HPCurrent) / static_cast<FLOAT>(p_spawn->HPMax) * 100) : m_p_self->hp_percent;
+		client.hp_deficit    = (nullptr != p_spawn) ? p_spawn->HPCurrent - p_spawn->HPMax : m_p_self->hp_deficit;
+		client.mana_percent  = (nullptr != p_spawn) ? static_cast<DWORD>(static_cast<FLOAT>(p_spawn->ManaCurrent) / static_cast<FLOAT>(p_spawn->ManaMax) * 100) : m_p_self->mana_percent;
 		client.aggro_percent = (nullptr != pAggroInfo) ? pAggroInfo->aggroData[AD_Player].AggroPct : 0;
 	}
 
 	inline void PublishMessage(SpawnData& client)
 	{
+		FunctionTimer timer(m_time_counts[__FUNCTION__]);
+
 		if(nullptr != m_p_send)
 		{
 			sprintf_s(m_send_buffer,
@@ -183,7 +213,7 @@ private:
 					  client.y,
 					  client.z,
 					  client.hp_percent,
-					  client.hp_missing,
+					  client.hp_deficit,
 					  client.mana_percent,
 					  client.aggro_percent);
 
@@ -193,6 +223,8 @@ private:
 
 	inline int Compare(SpawnData& left, SpawnData& right)
 	{
+		FunctionTimer timer(m_time_counts[__FUNCTION__]);
+
 		if(left.spawn_id != right.spawn_id
 		   || left.zone_id != right.zone_id
 		   || left.zoning != right.zoning
@@ -212,15 +244,77 @@ private:
 		return 0;
 	}
 
+	inline void HandleCasting()
+	{
+		FunctionTimer timer(m_time_counts[__FUNCTION__]);
+
+		if(nullptr != m_p_cast)
+		{
+		}
+	}
+
+	inline void HandleCorpse()
+	{
+		FunctionTimer timer(m_time_counts[__FUNCTION__]);
+
+		return;
+	}
+
+	inline void HandleDrag()
+	{
+		FunctionTimer timer(m_time_counts[__FUNCTION__]);
+
+		if(m_drag_enable)
+		{
+			char exec[MAX_STRING];
+
+			for(size_t i = 0; i < gSpawnCount && EQP_DistArray[i].Value.Float < 100; i++)
+			{
+				PSPAWNINFO p_spawn = (PSPAWNINFO)EQP_DistArray[i].VarPtr.Ptr;
+
+				if(EQP_DistArray[i].Value.Float > 10 && nullptr != p_spawn)
+				{
+					switch(p_spawn->Type)
+					{
+					case SPAWN_CORPSE:
+
+						if(p_spawn->Deity > 0)
+						{
+							snprintf(exec, MAX_STRING, "/squelch /target id %d", p_spawn->SpawnID);
+							DoCommand(p_spawn, exec);
+							DoCommand(p_spawn, "/squelch /corpse");
+						}
+
+						break;
+
+					case SPAWN_PLAYER:
+					case SPAWN_NPC:
+					default:
+						break;
+					}
+				}
+			}
+		}
+	}
+
 	inline void HandleEvents()
 	{
-		PSPAWNINFO p_char         = GetCharInfo()->pSpawn;
+		FunctionTimer timer(m_time_counts[__FUNCTION__]);
+
+		PCHARINFO p_char          = GetCharInfo();
+		PSPAWNINFO p_spawn        = p_char->pSpawn;
 		PEQTRADEWINDOW p_trade    = (PEQTRADEWINDOW)pTradeWnd;
 		CSidlScreenWnd* p_group   = (CSidlScreenWnd*)FindMQ2Window("GroupWindow");
 		CSidlScreenWnd* p_confirm = (CSidlScreenWnd*)FindMQ2Window("ConfirmationDialogBox");
+		DOUBLE xp_percent         = (static_cast<DOUBLE>(p_char->Exp) / 3.3) + (static_cast<DOUBLE>(p_spawn->Level) * 100);
+		DOUBLE delta_xp           = xp_percent - m_xp_percent;
+		m_xp_percent              = xp_percent;
+		DOUBLE xp_aa_percent      = (static_cast<DOUBLE>(p_char->AAExp) / 3.3) + (static_cast<DOUBLE>(GetCharInfo2()->AAPoints + GetCharInfo2()->AAPointsSpent) * 100);
+		DOUBLE delta_xp_aa        = xp_aa_percent - m_xp_aa_percent;
+		m_xp_aa_percent           = xp_aa_percent;
 
 		// Accept group
-		if(p_char->InvitedToGroup)
+		if(nullptr != p_spawn && p_spawn->InvitedToGroup)
 		{
 			SendWndClick2(p_group->GetChildItem("GW_FollowButton"), "leftmouseup");
 		}
@@ -236,38 +330,45 @@ private:
 		{
 			SendWndClick2(p_confirm->GetChildItem("CD_Yes_Button"), "leftmouseup");
 		}
-	}
 
-	inline void HandleCasting()
-	{
-		if(nullptr != m_p_cast)
+		// Print experience changes
+		if(delta_xp != 0)
 		{
+			WriteChatf("You gained %.2f%% experience.", delta_xp);
+		}
+
+		if(delta_xp_aa != 0)
+		{
+			WriteChatf("You gained %.2f%% AA experience.", delta_xp_aa);
 		}
 	}
 
 	inline void HandleMovement()
 	{
+		FunctionTimer timer(m_time_counts[__FUNCTION__]);
+
 		if(nullptr != m_p_chase && nullptr != m_p_target)
 		{
-			//if(!gbInZone || !GetCharInfo() || !GetCharInfo()->pSpawn || !AdvPathStatus)
-			//    return;
-			//
-			//         if(FollowState == FOLLOW_FOLLOWING && StatusState == STATUS_ON)
-			//	FollowSpawn();
-			//
-			//MeMonitorX = GetCharInfo()->pSpawn->X; // MeMonitorX monitor your self
-			//MeMonitorY = GetCharInfo()->pSpawn->Y; // MeMonitorY monitor your self
-			//MeMonitorZ = GetCharInfo()->pSpawn->Z; // MeMonitorZ monitor your self
+			if(IsClientInZone(m_p_target))
+			{
+				m_p_chase->AddWaypoint(m_p_target->x, m_p_target->y, m_p_target->z, m_p_target->heading, m_p_target->angle);
+			}
+
+			m_p_chase->Iterate();
 		}
 	}
 
 	inline bool IsClientInZone(SpawnData* p_client)
 	{
+		FunctionTimer timer(m_time_counts[__FUNCTION__]);
+
 		if(nullptr != p_client)
 		{
 			PSPAWNINFO p_spawn = (PSPAWNINFO)GetSpawnByID(p_client->spawn_id);
 
-			if(nullptr != p_spawn && !p_spawn->Linkdead && p_client->name.compare(p_spawn->Name) == 0)
+			if(nullptr != p_spawn
+			   && !p_spawn->Linkdead
+			   && Contains(std::string(p_spawn->Name), p_client->name))
 			{
 				return true;
 			}
@@ -278,6 +379,8 @@ private:
 
 	inline FLOAT DistanceToClient(SpawnData* p_client)
 	{
+		FunctionTimer timer(m_time_counts[__FUNCTION__]);
+
 		if(IsClientInZone(p_client))
 		{
 			PSPAWNINFO p_self = GetCharInfo()->pSpawn;
@@ -290,6 +393,8 @@ private:
 
 	inline bool IsClientVisible(SpawnData* p_client)
 	{
+		FunctionTimer timer(m_time_counts[__FUNCTION__]);
+
 		if(IsClientInZone(p_client))
 		{
 			SPAWNINFO client = *GetCharInfo()->pSpawn;
@@ -303,13 +408,31 @@ private:
 		return false;
 	}
 
+	inline SpawnData* GetClient(std::string& name)
+	{
+		FunctionTimer timer(m_time_counts[__FUNCTION__]);
+
+		auto it = m_clients.find(name);
+
+		if(it != m_clients.end())
+		{
+			return &it->second;
+		}
+		else
+		{
+			return nullptr;
+		}
+	}
+
 	inline bool IsClient(std::string& name)
 	{
-		return m_clients.find(name) != m_clients.end();
+		return nullptr != GetClient(name);
 	}
 
 	inline DWORD GetAggroed(char* aggro_list, size_t aggro_len, DWORD range = 100)
 	{
+		FunctionTimer timer(m_time_counts[__FUNCTION__]);
+
 		DWORD count = 0;
 		snprintf(aggro_list, aggro_len, "");
 
@@ -344,6 +467,8 @@ private:
 
 	inline DWORD GetCorpses(char* corpse_list, size_t corpse_len, DWORD range = 100)
 	{
+		FunctionTimer timer(m_time_counts[__FUNCTION__]);
+
 		DWORD count = 0;
 		snprintf(corpse_list, corpse_len, "");
 
@@ -384,13 +509,21 @@ private:
 	typedef VOID(__cdecl* CastFunction)(PSPAWNINFO, PCHAR);
 
 	char m_send_buffer[MAX_STRING];
+	char m_command_buffer[MAX_STRING];
 	NetSendFunction m_p_send;
 	CastFunction m_p_cast;
 	SpawnData* m_p_data_index;
+	SpawnData* m_p_self;
+	SpawnData* m_p_target;
 	SpellQueue* m_p_spell_queue;
 	Chase* m_p_chase;
-	SpawnData* m_p_target;
 	std::map<std::string, SpawnData> m_clients;
-	std::vector<std::clock_t> m_time_counts;
-	std::clock_t m_last_pulse;
+	std::map<std::string, std::clock_t> m_time_counts; // Function run time average
+	std::clock_t m_time_start;
+	std::clock_t m_last_tenth;
+	std::clock_t m_last_second;
+	DOUBLE m_xp_percent;
+	DOUBLE m_xp_aa_percent;
+	bool m_force_refresh;
+	bool m_drag_enable;
 };

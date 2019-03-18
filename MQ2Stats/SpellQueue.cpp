@@ -212,7 +212,7 @@ void SpellQueue::AddSpell(PSPELL p_spell)
 			break;
 		}
 		default:
-			WriteChatf("  Encountered unknown spell: %s (%d/%d)", p_spell->Name, p_spell->Category, p_spell->Subcategory);
+			PrintNack(p_spell);
 			break;
 		}
 		break;
@@ -229,6 +229,10 @@ void SpellQueue::AddSpell(PSPELL p_spell)
 		{
 			break;
 		}
+		case SpellSubCategory::Mana:
+		{
+			break;
+		}
 		case SpellSubCategory::Miscellaneous:
 		{
 			break;
@@ -238,7 +242,7 @@ void SpellQueue::AddSpell(PSPELL p_spell)
 			break;
 		}
 		default:
-			WriteChatf("  Encountered unknown spell: %s (%d/%d)", p_spell->Name, p_spell->Category, p_spell->Subcategory);
+			PrintNack(p_spell);
 			break;
 		}
 		break;
@@ -268,7 +272,7 @@ void SpellQueue::AddSpell(PSPELL p_spell)
 			break;
 		}
 		default:
-			WriteChatf("  Encountered unknown spell: %s (%d/%d)", p_spell->Name, p_spell->Category, p_spell->Subcategory);
+			PrintNack(p_spell);
 			break;
 		}
 		break;
@@ -314,7 +318,7 @@ void SpellQueue::AddSpell(PSPELL p_spell)
 			break;
 		}
 		default:
-			WriteChatf("  Encountered unknown spell: %s (%d/%d)", p_spell->Name, p_spell->Category, p_spell->Subcategory);
+			PrintNack(p_spell);
 			break;
 		}
 		break;
@@ -356,7 +360,7 @@ void SpellQueue::AddSpell(PSPELL p_spell)
 			break;
 		}
 		default:
-			WriteChatf("  Encountered unknown spell: %s (%d/%d)", p_spell->Name, p_spell->Category, p_spell->Subcategory);
+			PrintNack(p_spell);
 			break;
 		}
 
@@ -387,7 +391,7 @@ void SpellQueue::AddSpell(PSPELL p_spell)
 			break;
 		}
 		default:
-			WriteChatf("  Encountered unknown spell: %s (%d/%d)", p_spell->Name, p_spell->Category, p_spell->Subcategory);
+			PrintNack(p_spell);
 			break;
 		}
 		break;
@@ -416,6 +420,10 @@ void SpellQueue::AddSpell(PSPELL p_spell)
 		{
 			break;
 		}
+		case SpellSubCategory::SummonAir:
+		{
+			break;
+		}
 		case SpellSubCategory::SummonAnimation:
 		{
 			break;
@@ -437,7 +445,7 @@ void SpellQueue::AddSpell(PSPELL p_spell)
 			break;
 		}
 		default:
-			WriteChatf("  Encountered unknown spell: %s (%d/%d)", p_spell->Name, p_spell->Category, p_spell->Subcategory);
+			PrintNack(p_spell);
 			break;
 		}
 		break;
@@ -459,7 +467,7 @@ void SpellQueue::AddSpell(PSPELL p_spell)
 			break;
 		}
 		default:
-			WriteChatf("  Encountered unknown spell: %s (%d/%d)", p_spell->Name, p_spell->Category, p_spell->Subcategory);
+			PrintNack(p_spell);
 			break;
 		}
 		break;
@@ -497,7 +505,7 @@ void SpellQueue::AddSpell(PSPELL p_spell)
 			break;
 		}
 		default:
-			WriteChatf("  Encountered unknown spell: %s (%d/%d)", p_spell->Name, p_spell->Category, p_spell->Subcategory);
+			PrintNack(p_spell);
 			break;
 		}
 		break;
@@ -523,7 +531,7 @@ void SpellQueue::AddSpell(PSPELL p_spell)
 			break;
 		}
 		default:
-			WriteChatf("  Encountered unknown spell: %s (%d/%d)", p_spell->Name, p_spell->Category, p_spell->Subcategory);
+			PrintNack(p_spell);
 			break;
 		}
 		break;
@@ -577,7 +585,7 @@ void SpellQueue::AddSpell(PSPELL p_spell)
 			break;
 		}
 		default:
-			WriteChatf("  Encountered unknown spell: %s (%d/%d)", p_spell->Name, p_spell->Category, p_spell->Subcategory);
+			PrintNack(p_spell);
 			break;
 		}
 		break;
@@ -595,7 +603,7 @@ void SpellQueue::AddSpell(PSPELL p_spell)
 			break;
 		}
 		default:
-			WriteChatf("  Encountered unknown spell: %s (%d/%d)", p_spell->Name, p_spell->Category, p_spell->Subcategory);
+			PrintNack(p_spell);
 			break;
 		}
 		break;
@@ -681,7 +689,7 @@ void SpellQueue::AddSpell(PSPELL p_spell)
 			break;
 		}
 		default:
-			WriteChatf("  Encountered unknown spell: %s (%d/%d)", p_spell->Name, p_spell->Category, p_spell->Subcategory);
+			PrintNack(p_spell);
 			break;
 		}
 		break;
@@ -743,7 +751,7 @@ void SpellQueue::AddSpell(PSPELL p_spell)
 			break;
 		}
 		default:
-			WriteChatf("  Encountered unknown spell: %s (%d/%d)", p_spell->Name, p_spell->Category, p_spell->Subcategory);
+			PrintNack(p_spell);
 			break;
 		}
 		break;
@@ -751,9 +759,17 @@ void SpellQueue::AddSpell(PSPELL p_spell)
 	case SpellCategory::Unknown:
 	default:
 
-		WriteChatf("  Encountered unknown spell: %s (%d/%d)", p_spell->Name, p_spell->Category, p_spell->Subcategory);
+		PrintNack(p_spell);
 		break;
 	}
+}
+
+void SpellQueue::PrintNack(PSPELL p_spell)
+{
+	char* cat    = pCDBStr->GetString(p_spell->Category, 5, 0);
+	char* subcat = pCDBStr->GetString(p_spell->Subcategory, 5, 0);
+
+	WriteChatf("  Encountered unknown spell: %s (%d [ %s ] /%d [ %s ])", p_spell->Name, p_spell->Category, cat, p_spell->Subcategory, subcat);
 }
 
 SpellQueue::SpellType SpellQueue::ToType(std::string& type_name)
