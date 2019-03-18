@@ -2,14 +2,19 @@
 #include "SpellQueue.h"
 
 SpellQueue::SpellQueue()
-	: m_queued()
+	: m_p_cast(nullptr)
+	, m_cast_x(0.0)
+	, m_cast_y(0.0)
+	, m_cast_z(0.0)
+	, m_queued()
 	, m_types()
 	, m_spells()
+	, m_memorized()
 {
-	IntializeStructures();
-	ParseSpellBook();
+	InitTypes();
+	InitSpells();
 
-	WriteChatf("SpellQueue constructed");
+	ParseSpellBook();
 }
 
 SpellQueue::~SpellQueue()
@@ -22,30 +27,32 @@ SpellQueue::~SpellQueue()
 
 SpellQueue::SpellData* SpellQueue::Front()
 {
-	return m_queued.begin()->second;
-}
-
-void SpellQueue::Push(SpellType& type, std::string& target_name)
-{
-	PSPELL p_spell = ToSpell(type);
-
-	if(nullptr != p_spell && !IsQueued(type, target_name))
-	{
-		SpellData* spell_data = new SpellData();
-
-		spell_data->type        = type;
-		spell_data->p_spell     = p_spell;
-		spell_data->target_name = target_name;
-		spell_data->time_ms     = std::clock();
-
-		m_queued.insert(std::pair<SpellType, SpellData*>(type, spell_data));
-	}
+	return m_queued.size() ? m_queued.begin()->second : nullptr;
 }
 
 void SpellQueue::Push(std::string& type_name, std::string& target_name)
 {
 	SpellType type = ToType(type_name);
-	Push(type, target_name);
+	PSPAWNINFO p_target = (PSPAWNINFO)GetSpawnByName(const_cast<char*>(target_name.c_str()));
+
+	Push(type, p_target);
+}
+
+void SpellQueue::Push(SpellType& type, PSPAWNINFO p_target)
+{
+	PSPELL p_spell = ToSpell(type);
+
+	if(nullptr != p_spell && nullptr != p_target && !IsQueued(type, p_target))
+	{
+		SpellData* spell_data = new SpellData();
+
+		spell_data->type = type;
+		spell_data->p_spell = p_spell;
+		spell_data->p_target = p_target;
+		spell_data->time_ms = std::clock();
+
+		m_queued.insert(std::pair<SpellType, SpellData*>(type, spell_data));
+	}
 }
 
 void SpellQueue::Pop()
@@ -58,114 +65,104 @@ void SpellQueue::Pop()
 	}
 }
 
-void SpellQueue::Remove(SpellType& type, std::string& target_name)
+void SpellQueue::Remove(std::string& type_name, std::string& target_name)
 {
-	if(m_queued.count(type) > 0)
+	SpellType type = ToType(type_name);
+	PSPAWNINFO p_target = (PSPAWNINFO)GetSpawnByName(const_cast<char*>(target_name.c_str()));
+
+	Remove(type, p_target);
+}
+
+void SpellQueue::Remove(SpellType& type, PSPAWNINFO p_target)
+{
+	typedef std::multimap<SpellType, SpellData*>::iterator map_it;
+
+	std::pair<map_it, map_it> range = m_queued.equal_range(type);
+
+	for(map_it it = range.first; it != range.second; it++)
 	{
-		typedef std::multimap<SpellType, SpellData*>::iterator map_it;
+		SpellData* p_data = it->second;
 
-		std::pair<map_it, map_it> range = m_queued.equal_range(type);
-
-		for(map_it it = range.first; it != range.second; it++)
+		if(nullptr != p_data && p_target == p_data->p_target)
 		{
-			SpellData* p_spell = it->second;
-
-			if(nullptr != p_spell)
-			{
-				if(p_spell->target_name.compare(target_name) == 0)
-				{
-					m_queued.erase(it);
-				}
-			}
+			m_queued.erase(it);
+			delete p_data;
 		}
 	}
 }
 
-void SpellQueue::Remove(std::string& type_name, std::string& target_name)
-{
-	SpellType type = ToType(type_name);
-	Remove(type, target_name);
-}
-
-void SpellQueue::IntializeStructures()
+void SpellQueue::InitTypes()
 {
 	// Translates word send over network to enum type
-	m_types["feign"]          = SpellType::Feign;
-	m_types["evacuate"]       = SpellType::Evacuate;
-	m_types["arrest"]         = SpellType::Arrest;
-	m_types["resistance"]     = SpellType::Resistance;
-	m_types["charm"]          = SpellType::Charm;
-	m_types["blur"]           = SpellType::Blur;
-	m_types["slow"]           = SpellType::Slow;
-	m_types["healgroup"]      = SpellType::HealGroup;
-	m_types["heal"]           = SpellType::Heal;
-	m_types["hot"]            = SpellType::HoT;
-	m_types["resurrect"]      = SpellType::Resurrect;
-	m_types["pointblank"]     = SpellType::PointBlank;
-	m_types["curedisease"]    = SpellType::CureDisease;
-	m_types["curepoison"]     = SpellType::CurePoison;
-	m_types["curecurse"]      = SpellType::CureCurse;
-	m_types["cripple"]        = SpellType::Cripple;
-	m_types["summonpet"]      = SpellType::PetSummon;
-	m_types["movement"]       = SpellType::Movement;
-	m_types["clarity"]        = SpellType::Clarity;
-	m_types["cannibalize"]    = SpellType::Cannibalize;
-	m_types["haste"]          = SpellType::Haste;
-	m_types["aegolism"]       = SpellType::Aegolism;
-	m_types["toughness"]      = SpellType::Toughness;
-	m_types["statistic"]      = SpellType::Statistic;
-	m_types["dot"]            = SpellType::DoT;
-	m_types["nuke"]           = SpellType::Nuke;
-	m_types["summoncorpse"]   = SpellType::SummonCorpse;
-	m_types["calm"]           = SpellType::Calm;
-	m_types["invisibility"]   = SpellType::Invisibility;
+	m_types["feign"] = SpellType::Feign;
+	m_types["evacuate"] = SpellType::Evacuate;
+	m_types["charm"] = SpellType::Charm;
+	m_types["slow"] = SpellType::Slow;
+	m_types["healgroup"] = SpellType::HealGroup;
+	m_types["heal"] = SpellType::Heal;
+	m_types["hot"] = SpellType::HoT;
+	m_types["resurrect"] = SpellType::Resurrect;
+	m_types["curedisease"] = SpellType::CureDisease;
+	m_types["curepoison"] = SpellType::CurePoison;
+	m_types["curecurse"] = SpellType::CureCurse;
+	m_types["cripple"] = SpellType::Cripple;
+	m_types["summonpet"] = SpellType::PetSummon;
+	m_types["movement"] = SpellType::Movement;
+	m_types["clarity"] = SpellType::Clarity;
+	m_types["cannibalize"] = SpellType::Cannibalize;
+	m_types["haste"] = SpellType::Haste;
+	m_types["aegolism"] = SpellType::Aegolism;
+	m_types["statistic"] = SpellType::Statistic;
+	m_types["dot"] = SpellType::DoT;
+	m_types["nuke"] = SpellType::Nuke;
+	m_types["summoncorpse"] = SpellType::SummonCorpse;
+	m_types["calm"] = SpellType::Calm;
+	m_types["invisibility"] = SpellType::Invisibility;
 	m_types["enduringbreath"] = SpellType::EnduringBreath;
-	m_types["bind"]           = SpellType::Bind;
-	m_types["illusion"]       = SpellType::Illusion;
-	m_types["alliance"]       = SpellType::Alliance;
-	m_types["unknown"]        = SpellType::Unknown;
+	m_types["bind"] = SpellType::Bind;
+	m_types["illusion"] = SpellType::Illusion;
+	m_types["alliance"] = SpellType::Alliance;
+	m_types["unknown"] = SpellType::Unknown;
+}
 
+void SpellQueue::InitSpells()
+{
 	// Actual spells that these names point to
-	m_spells[SpellType::Feign]          = nullptr;
-	m_spells[SpellType::Evacuate]       = nullptr;
-	m_spells[SpellType::Arrest]         = nullptr;
-	m_spells[SpellType::Resistance]     = nullptr;
-	m_spells[SpellType::Charm]          = nullptr;
-	m_spells[SpellType::Blur]           = nullptr;
-	m_spells[SpellType::Slow]           = nullptr;
-	m_spells[SpellType::HealGroup]      = nullptr;
-	m_spells[SpellType::Heal]           = nullptr;
-	m_spells[SpellType::HoT]            = nullptr;
-	m_spells[SpellType::Resurrect]      = nullptr;
-	m_spells[SpellType::PointBlank]     = nullptr;
-	m_spells[SpellType::CureDisease]    = nullptr;
-	m_spells[SpellType::CurePoison]     = nullptr;
-	m_spells[SpellType::CureCurse]      = nullptr;
-	m_spells[SpellType::Cripple]        = nullptr;
-	m_spells[SpellType::PetSummon]      = nullptr;
-	m_spells[SpellType::Movement]       = nullptr;
-	m_spells[SpellType::Clarity]        = nullptr;
-	m_spells[SpellType::Cannibalize]    = nullptr;
-	m_spells[SpellType::Haste]          = nullptr;
-	m_spells[SpellType::Aegolism]       = nullptr;
-	m_spells[SpellType::Toughness]      = nullptr;
-	m_spells[SpellType::Statistic]      = nullptr;
-	m_spells[SpellType::DoT]            = nullptr;
-	m_spells[SpellType::Nuke]           = nullptr;
-	m_spells[SpellType::SummonCorpse]   = nullptr;
-	m_spells[SpellType::Calm]           = nullptr;
-	m_spells[SpellType::Invisibility]   = nullptr;
+	m_spells[SpellType::Feign] = nullptr;
+	m_spells[SpellType::Evacuate] = nullptr;
+	m_spells[SpellType::Charm] = nullptr;
+	m_spells[SpellType::Slow] = nullptr;
+	m_spells[SpellType::HealGroup] = nullptr;
+	m_spells[SpellType::Heal] = nullptr;
+	m_spells[SpellType::HoT] = nullptr;
+	m_spells[SpellType::Resurrect] = nullptr;
+	m_spells[SpellType::CureDisease] = nullptr;
+	m_spells[SpellType::CurePoison] = nullptr;
+	m_spells[SpellType::CureCurse] = nullptr;
+	m_spells[SpellType::Cripple] = nullptr;
+	m_spells[SpellType::PetSummon] = nullptr;
+	m_spells[SpellType::Movement] = nullptr;
+	m_spells[SpellType::Clarity] = nullptr;
+	m_spells[SpellType::Cannibalize] = nullptr;
+	m_spells[SpellType::Haste] = nullptr;
+	m_spells[SpellType::Aegolism] = nullptr;
+	m_spells[SpellType::Statistic] = nullptr;
+	m_spells[SpellType::DoT] = nullptr;
+	m_spells[SpellType::Nuke] = nullptr;
+	m_spells[SpellType::SummonCorpse] = nullptr;
+	m_spells[SpellType::Calm] = nullptr;
+	m_spells[SpellType::Invisibility] = nullptr;
 	m_spells[SpellType::EnduringBreath] = nullptr;
-	m_spells[SpellType::Bind]           = nullptr;
-	m_spells[SpellType::Illusion]       = nullptr;
-	m_spells[SpellType::Alliance]       = nullptr;
-	m_spells[SpellType::Unknown]        = nullptr;
+	m_spells[SpellType::Bind] = nullptr;
+	m_spells[SpellType::Illusion] = nullptr;
+	m_spells[SpellType::Alliance] = nullptr;
+	m_spells[SpellType::Unknown] = nullptr;
 }
 
 void SpellQueue::ParseSpellBook()
 {
 	PCHARINFO2 p_char = GetCharInfo2();
-	PSPELL p_curr     = nullptr;
+	PSPELL p_curr = nullptr;
 	DWORD spell_index = 0;
 
 	if(nullptr != p_char)
@@ -186,7 +183,7 @@ void SpellQueue::ParseSpellBook()
 
 void SpellQueue::AddSpell(PSPELL p_spell)
 {
-	SpellCategory category       = static_cast<SpellCategory>(p_spell->Category);
+	SpellCategory category = static_cast<SpellCategory>(p_spell->Category);
 	SpellSubCategory subcategory = static_cast<SpellSubCategory>(p_spell->Subcategory);
 
 	switch(category)
@@ -594,10 +591,10 @@ void SpellQueue::AddSpell(PSPELL p_spell)
 	{
 		switch(subcategory)
 		{
-		case SpellCategory::DamageOverTime:
-		{
-			break;
-		}
+			//case SpellCategory::DamageOverTime:
+			//{
+			//	break;
+			//}
 		case SpellSubCategory::ResistDebuff:
 		{
 			break;
@@ -766,7 +763,7 @@ void SpellQueue::AddSpell(PSPELL p_spell)
 
 void SpellQueue::PrintNack(PSPELL p_spell)
 {
-	char* cat    = pCDBStr->GetString(p_spell->Category, 5, 0);
+	char* cat = pCDBStr->GetString(p_spell->Category, 5, 0);
 	char* subcat = pCDBStr->GetString(p_spell->Subcategory, 5, 0);
 
 	WriteChatf("  Encountered unknown spell: %s (%d [ %s ] /%d [ %s ])", p_spell->Name, p_spell->Category, cat, p_spell->Subcategory, subcat);
@@ -796,29 +793,152 @@ PSPELL SpellQueue::ToSpell(SpellType& type)
 	return nullptr;
 }
 
-bool SpellQueue::IsQueued(SpellType& type, std::string& target_name)
+bool SpellQueue::IsQueued(SpellType& type, PSPAWNINFO p_target)
 {
-	if(m_queued.count(type) > 0)
+	typedef std::multimap<SpellType, SpellData*>::iterator map_it;
+
+	std::pair<map_it, map_it> range = m_queued.equal_range(type);
+
+	for(map_it it = range.first; it != range.second; it++)
 	{
-		typedef std::multimap<SpellType, SpellData*>::iterator map_it;
+		SpellData* p_data = it->second;
 
-		std::pair<map_it, map_it> range = m_queued.equal_range(type);
-
-		for(map_it it = range.first; it != range.second; it++)
+		if(nullptr != p_data && p_data->p_target == p_target)
 		{
-			SpellData* p_spell = it->second;
-
-			if(nullptr != p_spell)
-			{
-				if(p_spell->target_name.compare(target_name) == 0)
-				{
-					return true;
-				}
-			}
+			return true;
 		}
 	}
 
 	return false;
+}
+
+SpellQueue::SpellFailure SpellQueue::IsCastable(PSPELL p_spell, PSPAWNINFO p_caster, PSPAWNINFO p_target)
+{
+	if(nullptr == p_spell)
+	{
+		return SpellFailure::UndefinedSpell;
+	}
+
+	if(nullptr == p_caster)
+	{
+		return SpellFailure::UndefinedSelf;
+	}
+
+	if(nullptr == p_target)
+	{
+		return SpellFailure::UndefinedTarget;
+	}
+
+	if(p_caster->Zone != p_target->Zone)
+	{
+		return SpellFailure::NotInZone;
+	}
+
+	if(p_caster->ManaCurrent < p_spell->ManaCost)
+	{
+		return SpellFailure::OutOfMana;
+	}
+
+	if(p_spell->Range > 0.0 && GetDistance(p_caster, p_target) > p_spell->Range)
+	{
+		return SpellFailure::OutOfRange;
+	}
+}
+
+SpellQueue::SpellFailure SpellQueue::Cast()
+{
+	SpellFailure failure = SpellFailure::Unknown;
+
+	if(nullptr == m_p_cast)
+	{
+		PMQPLUGIN p_plugin = pPlugins;
+		while(p_plugin && _strnicmp(p_plugin->szFilename, "MQ2Cast", 7))
+		{
+			p_plugin = p_plugin->pNext;
+		}
+
+		if(nullptr != p_plugin)
+		{
+			m_p_cast = (CastFunction)GetProcAddress(p_plugin->hModule, "CastCommand");
+		}
+	}
+
+	if(nullptr != m_p_cast)
+	{
+		SpellData* p_data = Front();
+		if(nullptr != p_data)
+		{
+			PSPELL p_spell = p_data->p_spell;
+			PSPAWNINFO p_target = p_data->p_target;
+			PSPAWNINFO p_self = GetCharInfo()->pSpawn;
+
+			if(SpellFailure::None != (failure = Memorize(p_spell, p_self)))
+			{
+				return failure;
+			}
+
+			if(SpellFailure::None != (failure = IsCastable(p_spell, p_self, p_target)))
+			{
+
+				m_cast_x = p_self->X;
+				m_cast_y = p_self->Y;
+				m_cast_z = p_self->Z;
+
+				m_p_cast(p_target, p_spell->Name);
+			}
+		}
+	}
+}
+
+SpellQueue::SpellFailure SpellQueue::Memorize(PSPELL p_spell, PSPAWNINFO p_caster)
+{
+	SPELLFAVORITE memorized;
+
+	ZeroMemory(&memorized, sizeof(memorized));
+	memorized.inuse = 1;
+
+	// Check window open
+	if(!ppSpellBookWnd || !pSpellBookWnd)
+	{
+		return SpellFailure::BookClosed;
+	}
+
+	// Check already memorized
+	for(size_t i = 0; i < NUM_SPELL_GEMS; i++)
+	{
+		memorized.SpellId[i] = GetMemorizedSpell(i);
+
+		if(p_spell->ID == memorized.SpellId[i])
+		{
+			return SpellFailure::None;
+		}
+	}
+
+	// Check level requirement
+	if(p_caster->Level < p_spell->ClassLevel[p_caster->mActorClient.Class])
+	{
+		return SpellFailure::LevelTooLow;
+	}
+
+	LONG gem_num = -1;
+
+	// Get unused or shortest recast
+	for(size_t i = 0; i < NUM_SPELL_GEMS && (gem_num == -1); i++)
+	{
+		if(memorized.SpellId[i] == 0xFFFFFFFF)
+		{
+			memorized.SpellId[i] = p_spell->ID;
+		}
+	}
+	
+	if(gem_num == -1)
+	{
+		// Find shortest recast gem
+	}
+
+	pSpellBookWnd->MemorizeSet((int*)&memorized, NUM_SPELL_GEMS);
+
+	return SpellFailure::Memorizing;
 }
 
 //typedef struct _SPELL

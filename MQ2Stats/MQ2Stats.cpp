@@ -39,7 +39,6 @@ inline bool MQ2Stats::Contains(std::string& words, std::string& match)
 MQ2Stats::MQ2Stats()
 	: MQ2Type("Stats")
 	, m_p_send(nullptr)
-	, m_p_cast(nullptr)
 	, m_p_data_index(nullptr)
 	, m_p_self(nullptr)
 	, m_p_target(nullptr)
@@ -121,20 +120,6 @@ void MQ2Stats::Pulse()
 			if(nullptr != p_plugin)
 			{
 				m_p_send = (NetSendFunction)GetProcAddress(p_plugin->hModule, "NetBotSendMsg");
-			}
-		}
-
-		if(nullptr == m_p_cast)
-		{
-			PMQPLUGIN p_plugin = pPlugins;
-			while(p_plugin && _strnicmp(p_plugin->szFilename, "MQ2Cast", 7))
-			{
-				p_plugin = p_plugin->pNext;
-			}
-
-			if(nullptr != p_plugin)
-			{
-				m_p_cast = (CastFunction)GetProcAddress(p_plugin->hModule, "CastCommand");
 			}
 		}
 
@@ -274,7 +259,7 @@ void MQ2Stats::CommandDumpSpawn(PCHAR p_line)
 			WriteChatf("%d", (uint32_t)p_spawn->SplineRiderID);
 			WriteChatf("%d", (uint32_t)p_spawn->LastIntimidateUse);
 			WriteChatf("%d", (uint32_t)p_spawn->TargetOfTarget);
-			WriteChatf("%s", (char*)p_spawn->Unknown0x0e70);
+			//WriteChatf("%s", (char*)p_spawn->Unknown0x0e70);
 			WriteChatf("%d", (uint32_t)p_spawn->MeleeRadius); // used by GetMeleeRange
 			WriteChatf("%d", (uint32_t)p_spawn->CollisionCounter);
 			WriteChatf("%d", (uint32_t)p_spawn->CachedFloorLocationY);
@@ -358,9 +343,9 @@ void MQ2Stats::CommandDumpSpawn(PCHAR p_line)
 			WriteChatf("%d", (uint32_t)p_spawn->LastUpdateReceivedTime);
 			WriteChatf("%d", (uint32_t)p_spawn->MaxSpeakDistance);
 			WriteChatf("%d", (uint32_t)p_spawn->WalkSpeed);
-			WriteChatf("%s", (char*)p_spawn->Unknown0x11cc);
+			//WriteChatf("%s", (char*)p_spawn->Unknown0x11cc);
 			WriteChatf("%d", (uint32_t)p_spawn->InvitedToGroup);
-			WriteChatf("%d", (char*)p_spawn->Unknown0x1211);
+			//WriteChatf("%d", (char*)p_spawn->Unknown0x1211);
 			WriteChatf("%d", (uint32_t)p_spawn->GroupMemberTargeted); // 0xFFFFFFFF if no target, else 1 through 5
 			WriteChatf("%d", (uint32_t)p_spawn->bRemovalPending);
 			WriteChatf("%s", (char*)p_spawn->pCorpse); //look into 0x12f4 for sure!

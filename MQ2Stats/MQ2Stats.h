@@ -506,12 +506,10 @@ private:
 	}
 
 	typedef VOID(__cdecl* NetSendFunction)(PCHAR);
-	typedef VOID(__cdecl* CastFunction)(PSPAWNINFO, PCHAR);
-
+	
 	char m_send_buffer[MAX_STRING];
 	char m_command_buffer[MAX_STRING];
 	NetSendFunction m_p_send;
-	CastFunction m_p_cast;
 	SpawnData* m_p_data_index;
 	SpawnData* m_p_self;
 	SpawnData* m_p_target;

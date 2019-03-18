@@ -1,2 +1,5 @@
-﻿  MQ2Stats.cpp
-  MQ2Stats.vcxproj -> E:\MQ2\macroquest2\MQ2Stats\..\Release\MQ2Stats.dll
+﻿  Chase.cpp
+  MQ2Stats.cpp
+  SpellQueue.cpp
+c:\users\bdenning\downloads\macroquest2\mq2stats\mq2stats.h(192): warning C4244: '=': conversion from '__int64' to 'DWORD', possible loss of data (compiling source file MQ2Stats.cpp)
+LINK : fatal error LNK1104: cannot open file 'MQ2Main.lib'
