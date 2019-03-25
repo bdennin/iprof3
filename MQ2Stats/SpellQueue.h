@@ -250,10 +250,12 @@ private:
 	typedef VOID(__cdecl* CastFunction)(PSPAWNINFO, PCHAR);
 
 	CastFunction m_p_cast;
+	
 	FLOAT m_cast_x;
 	FLOAT m_cast_y;
 	FLOAT m_cast_z;
-	size_t m_gem_count;
+	bool m_is_casting;
+
 	std::multimap<SpellType, SpellData*> m_queued;
 	std::map<std::string, SpellType> m_types;
 	std::map<SpellType, PSPELL> m_spells;

@@ -6,10 +6,10 @@ SpellQueue::SpellQueue()
 	, m_cast_x(0.0)
 	, m_cast_y(0.0)
 	, m_cast_z(0.0)
+	, m_is_casting(false)
 	, m_queued()
 	, m_types()
 	, m_spells()
-	, m_memorized()
 {
 	InitTypes();
 	InitSpells();
@@ -843,6 +843,8 @@ SpellQueue::SpellFailure SpellQueue::IsCastable(PSPELL p_spell, PSPAWNINFO p_cas
 	{
 		return SpellFailure::OutOfRange;
 	}
+
+	return SpellFailure::None;
 }
 
 SpellQueue::SpellFailure SpellQueue::Cast()
@@ -879,13 +881,16 @@ SpellQueue::SpellFailure SpellQueue::Cast()
 
 			if(SpellFailure::None != (failure = IsCastable(p_spell, p_self, p_target)))
 			{
-
-				m_cast_x = p_self->X;
-				m_cast_y = p_self->Y;
-				m_cast_z = p_self->Z;
-
-				m_p_cast(p_target, p_spell->Name);
+				return failure;
 			}
+
+			m_cast_x = p_self->X;
+			m_cast_y = p_self->Y;
+			m_cast_z = p_self->Z;
+
+			m_is_casting = true;
+
+			m_p_cast(p_target, p_spell->Name);
 		}
 	}
 }
@@ -928,12 +933,15 @@ SpellQueue::SpellFailure SpellQueue::Memorize(PSPELL p_spell, PSPAWNINFO p_caste
 		if(memorized.SpellId[i] == 0xFFFFFFFF)
 		{
 			memorized.SpellId[i] = p_spell->ID;
+			gem_num = i;
 		}
 	}
 	
+	// No gems are open -- need to drop one
 	if(gem_num == -1)
 	{
 		// Find shortest recast gem
+
 	}
 
 	pSpellBookWnd->MemorizeSet((int*)&memorized, NUM_SPELL_GEMS);
