@@ -20,7 +20,7 @@ Chase::Chase()
 	, MonitorZ(0)
 	, MonitorHeading(0)
 	, MonitorWarp(false)
-	, MeMonitorX(0)
+	, MeMonitorX()
 	, MeMonitorY(0)
 	, MeMonitorZ(0)
 {
@@ -146,7 +146,7 @@ void Chase::LookAt(FLOAT x, FLOAT y, FLOAT z)
 	char buf[MAX_STRING] = { 0 };
 	PSPAWNINFO p_self    = GetCharInfo()->pSpawn;
 
-    snprintf(buf, MAX_STRING, "/face fast loc %d, %d", (int32_t)y, (int32_t)x);
+	snprintf(buf, MAX_STRING, "/face fast loc %d, %d", (int32_t)y, (int32_t)x);
 
 	DoCommand(p_self, buf);
 	/*

@@ -44,17 +44,22 @@ MQ2Stats::MQ2Stats()
 	, m_p_target(nullptr)
 	, m_p_spell_queue(nullptr)
 	, m_p_chase(nullptr)
+	, m_p_client(nullptr)
 	, m_clients()
 	, m_time_counts()
 	, m_time_start(0)
 	, m_last_tenth(0)
+	, m_last_half_second(0)
 	, m_last_second(0)
+	, m_last_tick(0)
 	, m_xp_percent(0.0)
 	, m_xp_aa_percent(0.0)
 	, m_force_refresh(false)
 	, m_drag_enable(false)
 {
 	FunctionTimer timer(m_time_counts[__FUNCTION__]);
+
+	m_p_send = FindNetSendFunction();
 
 	m_p_self = &m_clients[GetCharInfo()->Name];
 
@@ -91,8 +96,6 @@ MQ2Stats::MQ2Stats()
 	TypeMember(GroupHP);
 	TypeMember(AggroList);
 	TypeMember(CorpseList);
-	TypeMember(RunTimes);
-	TypeMember(DumpData);
 }
 
 MQ2Stats::~MQ2Stats()
@@ -111,16 +114,7 @@ void MQ2Stats::Pulse()
 	{
 		if(nullptr == m_p_send)
 		{
-			PMQPLUGIN p_plugin = pPlugins;
-			while(p_plugin && _strnicmp(p_plugin->szFilename, "MQ2EQBC", 8))
-			{
-				p_plugin = p_plugin->pNext;
-			}
-
-			if(nullptr != p_plugin)
-			{
-				m_p_send = (NetSendFunction)GetProcAddress(p_plugin->hModule, "NetBotSendMsg");
-			}
+			m_p_send = FindNetSendFunction();
 		}
 
 		// Cannot do anything without server distribution
@@ -132,29 +126,56 @@ void MQ2Stats::Pulse()
 			{
 				m_last_tenth = now;
 
-				SpawnData current;
-				Populate(current);
-
-				SpawnData cached = m_clients[GetCharInfo()->Name];
-
-				if(Compare(current, cached) != 0 || m_force_refresh)
-				{
-					PublishMessage(current);
-
-					m_force_refresh = false;
-				}
+				PublishStats(false);
 
 				HandleCasting();
+			}
+
+			if(now > m_last_half_second + 500)
+			{
+				m_last_half_second = now;
+
+				PublishLocation(false);
+
+				HandleMovement();
 			}
 
 			if(now > m_last_second + 1000)
 			{
 				m_last_second = now;
 
+				PublishZone(false);
+
 				HandleCorpse();
 				HandleDrag();
 				HandleEvents();
 			}
+		}
+	}
+}
+
+void MQ2Stats::CommandChase(PCHAR p_line)
+{
+	FunctionTimer timer(m_time_counts[__FUNCTION__]);
+
+	std::vector<std::string> args;
+
+	Split(std::string(p_line), args);
+
+	static std::string off = "off";
+	static std::string on  = "on";
+
+	if(args.size() > 0)
+	{
+		WriteChatf("Have chase command");
+		if(Contains(args[0], off))
+		{
+			ClearMovement();
+		}
+		else if(IsClient(args[0]))
+		{
+			WriteChatf("Set client to %s", args[0].c_str());
+			m_p_target = GetClient(args[0]);
 		}
 	}
 }
@@ -195,184 +216,324 @@ void MQ2Stats::CommandDumpSpawn(PCHAR p_line)
 
 	if(args.size() > 0)
 	{
-		WriteChatf("Attempting to dump spawn ID: %d", std::stoi(args[0]));
 		PSPAWNINFO p_spawn = (PSPAWNINFO)GetSpawnByID(std::stoi(args[0]));
 
 		if(nullptr != p_spawn)
 		{
-			WriteChatf("%d", (uint32_t)p_spawn->JumpStrength);
-			WriteChatf("%d", (uint32_t)p_spawn->SwimStrength);
-			WriteChatf("%d", (uint32_t)p_spawn->SpeedMultiplier);
-			WriteChatf("%d", (uint32_t)p_spawn->AreaFriction);
-			WriteChatf("%d", (uint32_t)p_spawn->AccelerationFriction);
-			WriteChatf("%d", (uint32_t)p_spawn->CollidingType); /* ok finally had time to get this one right, when we collide with something this gets set. */
-			WriteChatf("%d", (uint32_t)p_spawn->FloorHeight);
-			WriteChatf("%d", (uint32_t)p_spawn->bSinksInWater);
-			WriteChatf("%d", (uint32_t)p_spawn->PlayerTimeStamp); /* doesn't update when on a Vehicle (mounts/boats etc) */
-			WriteChatf("%d", (uint32_t)p_spawn->LastTimeIdle);
-			WriteChatf("%d", (uint32_t)p_spawn->AreaHPRegenMod); /*from guild hall pools etc. */
-			WriteChatf("%d", (uint32_t)p_spawn->AreaEndRegenMod);
-			WriteChatf("%d", (uint32_t)p_spawn->AreaManaRegenMod);
-			WriteChatf("%d", (uint32_t)p_spawn->Y);
-			WriteChatf("%d", (uint32_t)p_spawn->X);
-			WriteChatf("%d", (uint32_t)p_spawn->Z);
-			WriteChatf("%d", (uint32_t)p_spawn->SpeedY);
-			WriteChatf("%d", (uint32_t)p_spawn->SpeedX);
-			WriteChatf("%d", (uint32_t)p_spawn->SpeedZ);
-			WriteChatf("%d", (uint32_t)p_spawn->SpeedRun);
-			WriteChatf("%d", (uint32_t)p_spawn->Heading);
-			WriteChatf("%d", (uint32_t)p_spawn->Angle);
-			WriteChatf("%d", (uint32_t)p_spawn->AccelAngle);
-			WriteChatf("%d", (uint32_t)p_spawn->SpeedHeading);
-			WriteChatf("%d", (uint32_t)p_spawn->CameraAngle);
-			WriteChatf("%d", (uint32_t)p_spawn->UnderWater); /*LastHeadEnvironmentType */
-			WriteChatf("%d", (uint32_t)p_spawn->LastBodyEnvironmentType);
-			WriteChatf("%d", (uint32_t)p_spawn->LastFeetEnvironmentType);
-			WriteChatf("%d", (uint32_t)p_spawn->HeadWet); /*these really are environment related, like lava as well for example */
-			WriteChatf("%d", (uint32_t)p_spawn->FeetWet);
-			WriteChatf("%d", (uint32_t)p_spawn->BodyWet);
-			WriteChatf("%d", (uint32_t)p_spawn->LastBodyWet);
-			WriteChatf("%d", (uint32_t)p_spawn->PossiblyStuck); /* never seen this be 1 so maybe it was used a a point but not now... */
-			WriteChatf("%d", (uint32_t)p_spawn->Type);
-			WriteChatf("%d", (uint32_t)p_spawn->AvatarHeight); /* height of avatar from groundwhen standing*/
-			WriteChatf("%d", (uint32_t)p_spawn->Height);
-			WriteChatf("%d", (uint32_t)p_spawn->Width);
-			WriteChatf("%d", (uint32_t)p_spawn->Length);
-			WriteChatf("%d", (uint32_t)p_spawn->SpawnID);
-			WriteChatf("%d", (uint32_t)p_spawn->PlayerState); /* 0=Idle 1=Open 2=WeaponSheathed 4=Aggressive 8=ForcedAggressive 0x10=InstrumentEquipped 0x20=Stunned 0x40=PrimaryWeaponEquipped 0x80=SecondaryWeaponEquipped */
-			WriteChatf("%d", (uint32_t)p_spawn->Vehicle);     /* NULL until you collide with a vehicle (boat,airship etc) */
-			WriteChatf("%d", (uint32_t)p_spawn->Mount);       /* NULL if no mount present */
-			WriteChatf("%d", (uint32_t)p_spawn->Rider);       /* _SPAWNINFO of mount's rider */
-			WriteChatf("%d", (uint32_t)p_spawn->Unknown0x015c);
-			WriteChatf("%d", (uint32_t)p_spawn->Targetable); /* true if mob is targetable */
-			WriteChatf("%d", (uint32_t)p_spawn->bTargetCyclable);
-			WriteChatf("%d", (uint32_t)p_spawn->bClickThrough);
-			WriteChatf("%d", (uint32_t)p_spawn->bBeingFlung);
-			WriteChatf("%d", (uint32_t)p_spawn->FlingActiveTimer);
-			WriteChatf("%d", (uint32_t)p_spawn->FlingTimerStart);
-			WriteChatf("%d", (uint32_t)p_spawn->bFlingSomething);
-			WriteChatf("%d", (uint32_t)p_spawn->FlingY);
-			WriteChatf("%d", (uint32_t)p_spawn->FlingX);
-			WriteChatf("%d", (uint32_t)p_spawn->FlingZ);
-			WriteChatf("%d", (uint32_t)p_spawn->bFlingSnapToDest);
-			WriteChatf("%d", (uint32_t)p_spawn->SplineID);
-			WriteChatf("%d", (uint32_t)p_spawn->SplineRiderID);
-			WriteChatf("%d", (uint32_t)p_spawn->LastIntimidateUse);
-			WriteChatf("%d", (uint32_t)p_spawn->TargetOfTarget);
-			//WriteChatf("%s", (char*)p_spawn->Unknown0x0e70);
-			WriteChatf("%d", (uint32_t)p_spawn->MeleeRadius); // used by GetMeleeRange
-			WriteChatf("%d", (uint32_t)p_spawn->CollisionCounter);
-			WriteChatf("%d", (uint32_t)p_spawn->CachedFloorLocationY);
-			WriteChatf("%d", (uint32_t)p_spawn->CachedFloorLocationX);
-			WriteChatf("%d", (uint32_t)p_spawn->CachedFloorLocationZ);
-			WriteChatf("%d", (uint32_t)p_spawn->CachedFloorHeight);
-			WriteChatf("%d", (uint32_t)p_spawn->CachedCeilingLocationY);
-			WriteChatf("%d", (uint32_t)p_spawn->CachedCeilingLocationX);
-			WriteChatf("%d", (uint32_t)p_spawn->CachedCeilingLocationZ);
-			WriteChatf("%d", (uint32_t)p_spawn->CachedCeilingHeight);
-			WriteChatf("%d", (uint32_t)p_spawn->Animation);
-			WriteChatf("%d", (uint32_t)p_spawn->NextAnim);
-			WriteChatf("%d", (uint32_t)p_spawn->CurrLowerBodyAnim);
-			WriteChatf("%d", (uint32_t)p_spawn->NextLowerBodyAnim);
-			WriteChatf("%d", (uint32_t)p_spawn->CurrLowerAnimVariation);
-			WriteChatf("%d", (uint32_t)p_spawn->CurrAnimVariation);
-			WriteChatf("%d", (uint32_t)p_spawn->CurrAnimRndVariation);
-			WriteChatf("%d", (uint32_t)p_spawn->Loop3d_SoundID);
-
-			WriteChatf("%d", (uint32_t)p_spawn->Step_SoundID);
-			WriteChatf("%d", (uint32_t)p_spawn->CurLoop_SoundID);
-			WriteChatf("%d", (uint32_t)p_spawn->Idle3d1_SoundID);
-			WriteChatf("%d", (uint32_t)p_spawn->Idle3d2_SoundID);
-			WriteChatf("%d", (uint32_t)p_spawn->Jump_SoundID);
-			WriteChatf("%d", (uint32_t)p_spawn->Hit1_SoundID);
-			WriteChatf("%d", (uint32_t)p_spawn->Hit2_SoundID);
-			WriteChatf("%d", (uint32_t)p_spawn->Hit3_SoundID);
-
-			WriteChatf("%d", (uint32_t)p_spawn->Hit4_SoundID);
-			WriteChatf("%d", (uint32_t)p_spawn->Gasp1_SoundID);
-			WriteChatf("%d", (uint32_t)p_spawn->Gasp2_SoundID);
-			WriteChatf("%d", (uint32_t)p_spawn->Drown_SoundID);
-			WriteChatf("%d", (uint32_t)p_spawn->Death_SoundID);
-			WriteChatf("%d", (uint32_t)p_spawn->Attk1_SoundID);
-			WriteChatf("%d", (uint32_t)p_spawn->Attk2_SoundID);
-			WriteChatf("%d", (uint32_t)p_spawn->Attk3_SoundID);
-
-			WriteChatf("%d", (uint32_t)p_spawn->Walk_SoundID);
-			WriteChatf("%d", (uint32_t)p_spawn->Run_SoundID);
-			WriteChatf("%d", (uint32_t)p_spawn->Crouch_SoundID);
-			WriteChatf("%d", (uint32_t)p_spawn->Swim_SoundID);
-			WriteChatf("%d", (uint32_t)p_spawn->TreadWater_SoundID);
-			WriteChatf("%d", (uint32_t)p_spawn->Climb_SoundID);
-			WriteChatf("%d", (uint32_t)p_spawn->Sit_SoundID);
-			WriteChatf("%d", (uint32_t)p_spawn->Kick_SoundID);
-
-			WriteChatf("%d", (uint32_t)p_spawn->Bash_SoundID);
-			WriteChatf("%d", (uint32_t)p_spawn->FireBow_SoundID);
-			WriteChatf("%d", (uint32_t)p_spawn->MonkAttack1_SoundID);
-			WriteChatf("%d", (uint32_t)p_spawn->MonkAttack2_SoundID);
-			WriteChatf("%d", (uint32_t)p_spawn->MonkSpecial_SoundID);
-			WriteChatf("%d", (uint32_t)p_spawn->PrimaryBlunt_SoundID);
-			WriteChatf("%d", (uint32_t)p_spawn->PrimarySlash_SoundID);
-			WriteChatf("%d", (uint32_t)p_spawn->PrimaryStab_SoundID);
-
-			WriteChatf("%d", (uint32_t)p_spawn->Punch_SoundID);
-			WriteChatf("%d", (uint32_t)p_spawn->Roundhouse_SoundID);
-			WriteChatf("%d", (uint32_t)p_spawn->SecondaryBlunt_SoundID);
-			WriteChatf("%d", (uint32_t)p_spawn->SecondarySlash_SoundID);
-			WriteChatf("%d", (uint32_t)p_spawn->SecondaryStab_SoundID);
-			WriteChatf("%d", (uint32_t)p_spawn->SwimAttack_SoundID);
-			WriteChatf("%d", (uint32_t)p_spawn->TwoHandedBlunt_SoundID);
-			WriteChatf("%d", (uint32_t)p_spawn->TwoHandedSlash_SoundID);
-
-			WriteChatf("%d", (uint32_t)p_spawn->TwoHandedStab_SoundID);
-			WriteChatf("%d", (uint32_t)p_spawn->SecondaryPunch_SoundID);
-			WriteChatf("%d", (uint32_t)p_spawn->JumpAcross_SoundID);
-			WriteChatf("%d", (uint32_t)p_spawn->WalkBackwards_SoundID);
-			WriteChatf("%d", (uint32_t)p_spawn->CrouchWalk_SoundID);
-
-			WriteChatf("%d", (uint32_t)p_spawn->RightHolding); //119c see 514929
-			WriteChatf("%d", (uint32_t)p_spawn->LeftHolding);  //1 holding 0 not holding 11a0 see 514946
-			WriteChatf("%d", (uint32_t)p_spawn->LastBubblesTime);
-			WriteChatf("%d", (uint32_t)p_spawn->LastColdBreathTime);
-			WriteChatf("%d", (uint32_t)p_spawn->LastParticleUpdateTime);
-			WriteChatf("%d", (uint32_t)p_spawn->MercID);       //if the spawn is player and has a merc up this is it's spawn ID -eqmule 16 jul 2014
-			WriteChatf("%d", (uint32_t)p_spawn->ContractorID); //if the spawn is a merc this is its contractor's spawn ID -eqmule 16 jul 2014
-			WriteChatf("%d", (uint32_t)p_spawn->CeilingHeightAtCurrLocation);
-			WriteChatf("%d", (uint32_t)p_spawn->MobileEmitter); //todo: change and map to EqMobileEmitter*
-			WriteChatf("%d", (uint32_t)p_spawn->bInstantHPGaugeChange);
-			WriteChatf("%d", (uint32_t)p_spawn->LastUpdateReceivedTime);
-			WriteChatf("%d", (uint32_t)p_spawn->MaxSpeakDistance);
-			WriteChatf("%d", (uint32_t)p_spawn->WalkSpeed);
-			//WriteChatf("%s", (char*)p_spawn->Unknown0x11cc);
-			WriteChatf("%d", (uint32_t)p_spawn->InvitedToGroup);
-			//WriteChatf("%d", (char*)p_spawn->Unknown0x1211);
-			WriteChatf("%d", (uint32_t)p_spawn->GroupMemberTargeted); // 0xFFFFFFFF if no target, else 1 through 5
-			WriteChatf("%d", (uint32_t)p_spawn->bRemovalPending);
-			WriteChatf("%s", (char*)p_spawn->pCorpse); //look into 0x12f4 for sure!
-			WriteChatf("%d", (uint32_t)p_spawn->DefaultEmitterID);
-			WriteChatf("%d", (uint32_t)p_spawn->bDisplayNameSprite);
-			WriteChatf("%d", (uint32_t)p_spawn->bIdleAnimationOff);
-			WriteChatf("%d", (uint32_t)p_spawn->bIsInteractiveObject);
-			/*0x136b*/
-			WriteChatf("%d", (uint32_t)p_spawn->CampfireY);
-			WriteChatf("%d", (uint32_t)p_spawn->CampfireX);
-			WriteChatf("%d", (uint32_t)p_spawn->CampfireZ);
-			WriteChatf("%d", (uint32_t)p_spawn->CampfireZoneID);    // zone ID where campfire is
-			WriteChatf("%d", (uint32_t)p_spawn->CampfireTimestamp); // CampfireTimestamp-FastTime()=time left on campfire
-			WriteChatf("%d", (uint32_t)p_spawn->FellowShipID);
-			WriteChatf("%d", (uint32_t)p_spawn->CampType);
-			WriteChatf("%d", (uint32_t)p_spawn->Campfire); // do we have a campfire up?
-			WriteChatf("%d", (uint32_t)p_spawn->bGMCreatedNPC);
-			WriteChatf("%d", (uint32_t)p_spawn->ObjectAnimationID);
-			WriteChatf("%d", (uint32_t)p_spawn->bInteractiveObjectCollidable);
-			WriteChatf("%d", (uint32_t)p_spawn->InteractiveObjectType);
-			WriteChatf("%d", (uint32_t)p_spawn->LastHistorySentTime); //for sure 1e8c see 5909C7
-			WriteChatf("%d", (uint32_t)p_spawn->CurrentBardTwistIndex);
-			WriteChatf("%s", (char*)p_spawn->SpawnStatus); //todo: look closer at these i think they can show like status of mobs slowed, mezzed etc, but not sure
-			WriteChatf("%d", (uint32_t)p_spawn->BannerIndex1);
-			WriteChatf("%d", (uint32_t)p_spawn->MountAnimationRelated);
-			WriteChatf("%d", (uint32_t)p_spawn->bGuildShowAnim);  //or sprite? need to check
-			WriteChatf("%d", (uint32_t)p_spawn->bWaitingForPort); //check this
+			DebugSpewAlwaysFile("JumpStrength: %d", (int32_t)p_spawn->JumpStrength);
+			DebugSpewAlwaysFile("SwimStrength: %d", (int32_t)p_spawn->SwimStrength);
+			DebugSpewAlwaysFile("SpeedMultiplier: %d", (int32_t)p_spawn->SpeedMultiplier);
+			DebugSpewAlwaysFile("AreaFriction: %d", (int32_t)p_spawn->AreaFriction);
+			DebugSpewAlwaysFile("AccelerationFriction: %d", (int32_t)p_spawn->AccelerationFriction);
+			DebugSpewAlwaysFile("CollidingType: %d", (int32_t)p_spawn->CollidingType);
+			DebugSpewAlwaysFile("FloorHeight: %d", (int32_t)p_spawn->FloorHeight);
+			DebugSpewAlwaysFile("bSinksInWater: %d", (int32_t)p_spawn->bSinksInWater);
+			DebugSpewAlwaysFile("PlayerTimeStamp: %d", (int32_t)p_spawn->PlayerTimeStamp);
+			DebugSpewAlwaysFile("LastTimeIdle: %d", (int32_t)p_spawn->LastTimeIdle);
+			DebugSpewAlwaysFile("Lastname: %d", (int32_t)p_spawn->Lastname);
+			DebugSpewAlwaysFile("AreaHPRegenMod: %d", (int32_t)p_spawn->AreaHPRegenMod);
+			DebugSpewAlwaysFile("AreaEndRegenMod: %d", (int32_t)p_spawn->AreaEndRegenMod);
+			DebugSpewAlwaysFile("AreaManaRegenMod: %d", (int32_t)p_spawn->AreaManaRegenMod);
+			DebugSpewAlwaysFile("Y: %d", (int32_t)p_spawn->Y);
+			DebugSpewAlwaysFile("X: %d", (int32_t)p_spawn->X);
+			DebugSpewAlwaysFile("Z: %d", (int32_t)p_spawn->Z);
+			DebugSpewAlwaysFile("SpeedY: %d", (int32_t)p_spawn->SpeedY);
+			DebugSpewAlwaysFile("SpeedX: %d", (int32_t)p_spawn->SpeedX);
+			DebugSpewAlwaysFile("SpeedZ: %d", (int32_t)p_spawn->SpeedZ);
+			DebugSpewAlwaysFile("SpeedRun: %d", (int32_t)p_spawn->SpeedRun);
+			DebugSpewAlwaysFile("Heading: %d", (int32_t)p_spawn->Heading);
+			DebugSpewAlwaysFile("Angle: %d", (int32_t)p_spawn->Angle);
+			DebugSpewAlwaysFile("AccelAngle: %d", (int32_t)p_spawn->AccelAngle);
+			DebugSpewAlwaysFile("SpeedHeading: %d", (int32_t)p_spawn->SpeedHeading);
+			DebugSpewAlwaysFile("CameraAngle: %d", (int32_t)p_spawn->CameraAngle);
+			DebugSpewAlwaysFile("UnderWater: %d", (int32_t)p_spawn->UnderWater);
+			DebugSpewAlwaysFile("LastBodyEnvironmentType: %d", (int32_t)p_spawn->LastBodyEnvironmentType);
+			DebugSpewAlwaysFile("LastFeetEnvironmentType: %d", (int32_t)p_spawn->LastFeetEnvironmentType);
+			DebugSpewAlwaysFile("HeadWet: %d", (int32_t)p_spawn->HeadWet);
+			DebugSpewAlwaysFile("FeetWet: %d", (int32_t)p_spawn->FeetWet);
+			DebugSpewAlwaysFile("BodyWet: %d", (int32_t)p_spawn->BodyWet);
+			DebugSpewAlwaysFile("LastBodyWet: %d", (int32_t)p_spawn->LastBodyWet);
+			DebugSpewAlwaysFile("Name: %d", (int32_t)p_spawn->Name);
+			DebugSpewAlwaysFile("DisplayedName: %d", (int32_t)p_spawn->DisplayedName);
+			DebugSpewAlwaysFile("PossiblyStuck: %d", (int32_t)p_spawn->PossiblyStuck);
+			DebugSpewAlwaysFile("Type: %d", (int32_t)p_spawn->Type);
+			DebugSpewAlwaysFile("BodyType: %d", (int32_t)p_spawn->BodyType);
+			DebugSpewAlwaysFile("CharPropFiller: %d", (int32_t)p_spawn->CharPropFiller);
+			DebugSpewAlwaysFile("AvatarHeight: %d", (int32_t)p_spawn->AvatarHeight);
+			DebugSpewAlwaysFile("Height: %d", (int32_t)p_spawn->Height);
+			DebugSpewAlwaysFile("Width: %d", (int32_t)p_spawn->Width);
+			DebugSpewAlwaysFile("Length: %d", (int32_t)p_spawn->Length);
+			DebugSpewAlwaysFile("SpawnID: %d", (int32_t)p_spawn->SpawnID);
+			DebugSpewAlwaysFile("PlayerState: %d", (int32_t)p_spawn->PlayerState);
+			DebugSpewAlwaysFile("Vehicle: %d", (int32_t)p_spawn->Vehicle);
+			DebugSpewAlwaysFile("Mount: %d", (int32_t)p_spawn->Mount);
+			DebugSpewAlwaysFile("Rider: %d", (int32_t)p_spawn->Rider);
+			DebugSpewAlwaysFile("Unknown0x015c: %d", (int32_t)p_spawn->Unknown0x015c);
+			DebugSpewAlwaysFile("Targetable: %d", (int32_t)p_spawn->Targetable);
+			DebugSpewAlwaysFile("bTargetCyclable: %d", (int32_t)p_spawn->bTargetCyclable);
+			DebugSpewAlwaysFile("bClickThrough: %d", (int32_t)p_spawn->bClickThrough);
+			DebugSpewAlwaysFile("bBeingFlung: %d", (int32_t)p_spawn->bBeingFlung);
+			DebugSpewAlwaysFile("FlingActiveTimer: %d", (int32_t)p_spawn->FlingActiveTimer);
+			DebugSpewAlwaysFile("FlingTimerStart: %d", (int32_t)p_spawn->FlingTimerStart);
+			DebugSpewAlwaysFile("bFlingSomething: %d", (int32_t)p_spawn->bFlingSomething);
+			DebugSpewAlwaysFile("FlingY: %d", (int32_t)p_spawn->FlingY);
+			DebugSpewAlwaysFile("FlingX: %d", (int32_t)p_spawn->FlingX);
+			DebugSpewAlwaysFile("FlingZ: %d", (int32_t)p_spawn->FlingZ);
+			DebugSpewAlwaysFile("bFlingSnapToDest: %d", (int32_t)p_spawn->bFlingSnapToDest);
+			DebugSpewAlwaysFile("SplineID: %d", (int32_t)p_spawn->SplineID);
+			DebugSpewAlwaysFile("SplineRiderID: %d", (int32_t)p_spawn->SplineRiderID);
+			DebugSpewAlwaysFile("LastIntimidateUse: %d", (int32_t)p_spawn->LastIntimidateUse);
+			//DebugSpewAlwaysFilMovementStat: e("%d", (int32_t)&p_spawn->MovementStats);
+			DebugSpewAlwaysFile("WhoFollowing: %d", (int32_t)p_spawn->WhoFollowing);
+			DebugSpewAlwaysFile("GroupAssistNPC: %d", (int32_t)p_spawn->GroupAssistNPC);
+			DebugSpewAlwaysFile("RaidAssistNPC: %d", (int32_t)p_spawn->RaidAssistNPC);
+			DebugSpewAlwaysFile("GroupMarkNPC: %d", (int32_t)p_spawn->GroupMarkNPC);
+			DebugSpewAlwaysFile("RaidMarkNPC: %d", (int32_t)p_spawn->RaidMarkNPC);
+			DebugSpewAlwaysFile("TargetOfTarget: %d", (int32_t)p_spawn->TargetOfTarget);
+			DebugSpewAlwaysFile("Unknown0x0e70: %d", (int32_t)p_spawn->Unknown0x0e70);
+			//DebugSpewAlwaysFilmActorClien: e("%d", (int32_t)&p_spawn->mActorClient);
+			DebugSpewAlwaysFile("pAnimation: %d", (int32_t)p_spawn->pAnimation);
+			DebugSpewAlwaysFile("MeleeRadius: %d", (int32_t)p_spawn->MeleeRadius);
+			DebugSpewAlwaysFile("CollisionCounter: %d", (int32_t)p_spawn->CollisionCounter);
+			DebugSpewAlwaysFile("CachedFloorLocationY: %d", (int32_t)p_spawn->CachedFloorLocationY);
+			DebugSpewAlwaysFile("CachedFloorLocationX: %d", (int32_t)p_spawn->CachedFloorLocationX);
+			DebugSpewAlwaysFile("CachedFloorLocationZ: %d", (int32_t)p_spawn->CachedFloorLocationZ);
+			DebugSpewAlwaysFile("CachedFloorHeight: %d", (int32_t)p_spawn->CachedFloorHeight);
+			DebugSpewAlwaysFile("CachedCeilingLocationY: %d", (int32_t)p_spawn->CachedCeilingLocationY);
+			DebugSpewAlwaysFile("CachedCeilingLocationX: %d", (int32_t)p_spawn->CachedCeilingLocationX);
+			DebugSpewAlwaysFile("CachedCeilingLocationZ: %d", (int32_t)p_spawn->CachedCeilingLocationZ);
+			DebugSpewAlwaysFile("CachedCeilingHeight: %d", (int32_t)p_spawn->CachedCeilingHeight);
+			//DebugSpewAlwaysFilStaticCollisio: e("%d", (int32_t)p_spawn->StaticCollision);
+			//DebugSpewAlwaysFilmPhysicsEffect: e("%d", (int32_t)p_spawn->mPhysicsEffects);
+			//DebugSpewAlwaysFilPhysicsEffectsUpdate: e("%d", (int32_t)p_spawn->PhysicsEffectsUpdated);
+			DebugSpewAlwaysFile("Animation: %d", (int32_t)p_spawn->Animation);
+			DebugSpewAlwaysFile("NextAnim: %d", (int32_t)p_spawn->NextAnim);
+			DebugSpewAlwaysFile("CurrLowerBodyAnim: %d", (int32_t)p_spawn->CurrLowerBodyAnim);
+			DebugSpewAlwaysFile("NextLowerBodyAnim: %d", (int32_t)p_spawn->NextLowerBodyAnim);
+			DebugSpewAlwaysFile("CurrLowerAnimVariation: %d", (int32_t)p_spawn->CurrLowerAnimVariation);
+			DebugSpewAlwaysFile("CurrAnimVariation: %d", (int32_t)p_spawn->CurrAnimVariation);
+			DebugSpewAlwaysFile("CurrAnimRndVariation: %d", (int32_t)p_spawn->CurrAnimRndVariation);
+			DebugSpewAlwaysFile("Loop3d_SoundID: %d", (int32_t)p_spawn->Loop3d_SoundID);
+			DebugSpewAlwaysFile("Step_SoundID: %d", (int32_t)p_spawn->Step_SoundID);
+			DebugSpewAlwaysFile("CurLoop_SoundID: %d", (int32_t)p_spawn->CurLoop_SoundID);
+			DebugSpewAlwaysFile("Idle3d1_SoundID: %d", (int32_t)p_spawn->Idle3d1_SoundID);
+			DebugSpewAlwaysFile("Idle3d2_SoundID: %d", (int32_t)p_spawn->Idle3d2_SoundID);
+			DebugSpewAlwaysFile("Jump_SoundID: %d", (int32_t)p_spawn->Jump_SoundID);
+			DebugSpewAlwaysFile("Hit1_SoundID: %d", (int32_t)p_spawn->Hit1_SoundID);
+			DebugSpewAlwaysFile("Hit2_SoundID: %d", (int32_t)p_spawn->Hit2_SoundID);
+			DebugSpewAlwaysFile("Hit3_SoundID: %d", (int32_t)p_spawn->Hit3_SoundID);
+			DebugSpewAlwaysFile("Hit4_SoundID: %d", (int32_t)p_spawn->Hit4_SoundID);
+			DebugSpewAlwaysFile("Gasp1_SoundID: %d", (int32_t)p_spawn->Gasp1_SoundID);
+			DebugSpewAlwaysFile("Gasp2_SoundID: %d", (int32_t)p_spawn->Gasp2_SoundID);
+			DebugSpewAlwaysFile("Drown_SoundID: %d", (int32_t)p_spawn->Drown_SoundID);
+			DebugSpewAlwaysFile("Death_SoundID: %d", (int32_t)p_spawn->Death_SoundID);
+			DebugSpewAlwaysFile("Attk1_SoundID: %d", (int32_t)p_spawn->Attk1_SoundID);
+			DebugSpewAlwaysFile("Attk2_SoundID: %d", (int32_t)p_spawn->Attk2_SoundID);
+			DebugSpewAlwaysFile("Attk3_SoundID: %d", (int32_t)p_spawn->Attk3_SoundID);
+			DebugSpewAlwaysFile("Walk_SoundID: %d", (int32_t)p_spawn->Walk_SoundID);
+			DebugSpewAlwaysFile("Run_SoundID: %d", (int32_t)p_spawn->Run_SoundID);
+			DebugSpewAlwaysFile("Crouch_SoundID: %d", (int32_t)p_spawn->Crouch_SoundID);
+			DebugSpewAlwaysFile("Swim_SoundID: %d", (int32_t)p_spawn->Swim_SoundID);
+			DebugSpewAlwaysFile("TreadWater_SoundID: %d", (int32_t)p_spawn->TreadWater_SoundID);
+			DebugSpewAlwaysFile("Climb_SoundID: %d", (int32_t)p_spawn->Climb_SoundID);
+			DebugSpewAlwaysFile("Sit_SoundID: %d", (int32_t)p_spawn->Sit_SoundID);
+			DebugSpewAlwaysFile("Kick_SoundID: %d", (int32_t)p_spawn->Kick_SoundID);
+			DebugSpewAlwaysFile("Bash_SoundID: %d", (int32_t)p_spawn->Bash_SoundID);
+			DebugSpewAlwaysFile("FireBow_SoundID: %d", (int32_t)p_spawn->FireBow_SoundID);
+			DebugSpewAlwaysFile("MonkAttack1_SoundID: %d", (int32_t)p_spawn->MonkAttack1_SoundID);
+			DebugSpewAlwaysFile("MonkAttack2_SoundID: %d", (int32_t)p_spawn->MonkAttack2_SoundID);
+			DebugSpewAlwaysFile("MonkSpecial_SoundID: %d", (int32_t)p_spawn->MonkSpecial_SoundID);
+			DebugSpewAlwaysFile("PrimaryBlunt_SoundID: %d", (int32_t)p_spawn->PrimaryBlunt_SoundID);
+			DebugSpewAlwaysFile("PrimarySlash_SoundID: %d", (int32_t)p_spawn->PrimarySlash_SoundID);
+			DebugSpewAlwaysFile("PrimaryStab_SoundID: %d", (int32_t)p_spawn->PrimaryStab_SoundID);
+			DebugSpewAlwaysFile("Punch_SoundID: %d", (int32_t)p_spawn->Punch_SoundID);
+			DebugSpewAlwaysFile("Roundhouse_SoundID: %d", (int32_t)p_spawn->Roundhouse_SoundID);
+			DebugSpewAlwaysFile("SecondaryBlunt_SoundID: %d", (int32_t)p_spawn->SecondaryBlunt_SoundID);
+			DebugSpewAlwaysFile("SecondarySlash_SoundID: %d", (int32_t)p_spawn->SecondarySlash_SoundID);
+			DebugSpewAlwaysFile("SecondaryStab_SoundID: %d", (int32_t)p_spawn->SecondaryStab_SoundID);
+			DebugSpewAlwaysFile("SwimAttack_SoundID: %d", (int32_t)p_spawn->SwimAttack_SoundID);
+			DebugSpewAlwaysFile("TwoHandedBlunt_SoundID: %d", (int32_t)p_spawn->TwoHandedBlunt_SoundID);
+			DebugSpewAlwaysFile("TwoHandedSlash_SoundID: %d", (int32_t)p_spawn->TwoHandedSlash_SoundID);
+			DebugSpewAlwaysFile("TwoHandedStab_SoundID: %d", (int32_t)p_spawn->TwoHandedStab_SoundID);
+			DebugSpewAlwaysFile("SecondaryPunch_SoundID: %d", (int32_t)p_spawn->SecondaryPunch_SoundID);
+			DebugSpewAlwaysFile("JumpAcross_SoundID: %d", (int32_t)p_spawn->JumpAcross_SoundID);
+			DebugSpewAlwaysFile("WalkBackwards_SoundID: %d", (int32_t)p_spawn->WalkBackwards_SoundID);
+			DebugSpewAlwaysFile("CrouchWalk_SoundID: %d", (int32_t)p_spawn->CrouchWalk_SoundID);
+			DebugSpewAlwaysFile("LastWalkTime: %d", (int32_t)p_spawn->LastWalkTime);
+			DebugSpewAlwaysFile("RightHolding: %d", (int32_t)p_spawn->RightHolding);
+			DebugSpewAlwaysFile("LeftHolding: %d", (int32_t)p_spawn->LeftHolding);
+			DebugSpewAlwaysFile("LastBubblesTime: %d", (int32_t)p_spawn->LastBubblesTime);
+			DebugSpewAlwaysFile("LastColdBreathTime: %d", (int32_t)p_spawn->LastColdBreathTime);
+			DebugSpewAlwaysFile("LastParticleUpdateTime: %d", (int32_t)p_spawn->LastParticleUpdateTime);
+			DebugSpewAlwaysFile("MercID: %d", (int32_t)p_spawn->MercID);
+			DebugSpewAlwaysFile("ContractorID: %d", (int32_t)p_spawn->ContractorID);
+			DebugSpewAlwaysFile("CeilingHeightAtCurrLocation: %d", (int32_t)p_spawn->CeilingHeightAtCurrLocation);
+			DebugSpewAlwaysFile("MobileEmitter: %d", (int32_t)p_spawn->MobileEmitter);
+			DebugSpewAlwaysFile("bInstantHPGaugeChange: %d", (int32_t)p_spawn->bInstantHPGaugeChange);
+			DebugSpewAlwaysFile("LastUpdateReceivedTime: %d", (int32_t)p_spawn->LastUpdateReceivedTime);
+			DebugSpewAlwaysFile("MaxSpeakDistance: %d", (int32_t)p_spawn->MaxSpeakDistance);
+			DebugSpewAlwaysFile("WalkSpeed: %d", (int32_t)p_spawn->WalkSpeed);
+			DebugSpewAlwaysFile("Unknown0x11cc: %d", (int32_t)p_spawn->Unknown0x11cc);
+			DebugSpewAlwaysFile("AssistName: %d", (int32_t)p_spawn->AssistName);
+			DebugSpewAlwaysFile("InvitedToGroup: %d", (int32_t)p_spawn->InvitedToGroup);
+			DebugSpewAlwaysFile("Unknown0x1211: %d", (int32_t)p_spawn->Unknown0x1211);
+			DebugSpewAlwaysFile("GroupMemberTargeted: %d", (int32_t)p_spawn->GroupMemberTargeted);
+			DebugSpewAlwaysFile("bRemovalPending: %d", (int32_t)p_spawn->bRemovalPending);
+			DebugSpewAlwaysFile("pCorpse: %d", (int32_t)p_spawn->pCorpse);
+			DebugSpewAlwaysFile("EmitterScalingRadius: %d", (int32_t)p_spawn->EmitterScalingRadius);
+			DebugSpewAlwaysFile("DefaultEmitterID: %d", (int32_t)p_spawn->DefaultEmitterID);
+			DebugSpewAlwaysFile("bDisplayNameSprite: %d", (int32_t)p_spawn->bDisplayNameSprite);
+			DebugSpewAlwaysFile("bIdleAnimationOff: %d", (int32_t)p_spawn->bIdleAnimationOff);
+			DebugSpewAlwaysFile("bIsInteractiveObject: %d", (int32_t)p_spawn->bIsInteractiveObject);
+			DebugSpewAlwaysFile("InteractiveObjectModelName: %d", (int32_t)p_spawn->InteractiveObjectModelName);
+			DebugSpewAlwaysFile("InteractiveObjectOtherName: %d", (int32_t)p_spawn->InteractiveObjectOtherName);
+			DebugSpewAlwaysFile("InteractiveObjectName: %d", (int32_t)p_spawn->InteractiveObjectName);
+			//DebugSpewAlwaysFilPhysicsBeforeLastPor: e("%d", (int32_t)p_spawn->PhysicsBeforeLastPort);
+			//DebugSpewAlwaysFilFellowshi: e("%d", (int32_t)p_spawn->Fellowship);
+			DebugSpewAlwaysFile("CampfireY: %d", (int32_t)p_spawn->CampfireY);
+			DebugSpewAlwaysFile("CampfireX: %d", (int32_t)p_spawn->CampfireX);
+			DebugSpewAlwaysFile("CampfireZ: %d", (int32_t)p_spawn->CampfireZ);
+			DebugSpewAlwaysFile("CampfireZoneID: %d", (int32_t)p_spawn->CampfireZoneID);
+			DebugSpewAlwaysFile("CampfireTimestamp: %d", (int32_t)p_spawn->CampfireTimestamp);
+			DebugSpewAlwaysFile("FellowShipID: %d", (int32_t)p_spawn->FellowShipID);
+			DebugSpewAlwaysFile("CampType: %d", (int32_t)p_spawn->CampType);
+			DebugSpewAlwaysFile("Campfire: %d", (int32_t)p_spawn->Campfire);
+			//DebugSpewAlwaysFilEquipmen: e("%d", (int32_t)p_spawn->Equipment);
+			DebugSpewAlwaysFile("bIsPlacingItem: %d", (int32_t)p_spawn->bIsPlacingItem);
+			DebugSpewAlwaysFile("bGMCreatedNPC: %d", (int32_t)p_spawn->bGMCreatedNPC);
+			DebugSpewAlwaysFile("ObjectAnimationID: %d", (int32_t)p_spawn->ObjectAnimationID);
+			DebugSpewAlwaysFile("bInteractiveObjectCollidable: %d", (int32_t)p_spawn->bInteractiveObjectCollidable);
+			DebugSpewAlwaysFile("InteractiveObjectType: %d", (int32_t)p_spawn->InteractiveObjectType);
+			DebugSpewAlwaysFile("SoundIDs: %d", (int32_t)p_spawn->SoundIDs);
+			DebugSpewAlwaysFile("LastHistorySentTime: %d", (int32_t)p_spawn->LastHistorySentTime);
+			//DebugSpewAlwaysFilBardTwistSpell: e("%d", (int32_t)p_spawn->BardTwistSpells);
+			DebugSpewAlwaysFile("CurrentBardTwistIndex: %d", (int32_t)p_spawn->CurrentBardTwistIndex);
+			//DebugSpewAlwaysFilmPlayerPhysicsClien: e("%d", (int32_t)p_spawn->mPlayerPhysicsClient);
+			DebugSpewAlwaysFile("]: %d", (int32_t)p_spawn->SpawnStatus[6]);
+			DebugSpewAlwaysFile("BannerIndex0: %d", (int32_t)p_spawn->BannerIndex0);
+			DebugSpewAlwaysFile("BannerIndex1: %d", (int32_t)p_spawn->BannerIndex1);
+			//DebugSpewAlwaysFilBannerTint: e("%d", (int32_t)p_spawn->BannerTint0);
+			//DebugSpewAlwaysFilBannerTint: e("%d", (int32_t)p_spawn->BannerTint1);
+			DebugSpewAlwaysFile("MountAnimationRelated: %d", (int32_t)p_spawn->MountAnimationRelated);
+			DebugSpewAlwaysFile("bGuildShowAnim: %d", (int32_t)p_spawn->bGuildShowAnim);
+			DebugSpewAlwaysFile("bWaitingForPort: %d", (int32_t)p_spawn->bWaitingForPort);
+			DebugSpewAlwaysFile("IsPassenger: %d", (int32_t)p_spawn->IsPassenger);
+			DebugSpewAlwaysFile("ViewHeight: %d", (int32_t)p_spawn->ViewHeight);
+			DebugSpewAlwaysFile("bOfflineMode: %d", (int32_t)p_spawn->bOfflineMode);
+			DebugSpewAlwaysFile("RealEstateID: %d", (int32_t)p_spawn->RealEstateID);
+			DebugSpewAlwaysFile("TitleVisible: %d", (int32_t)p_spawn->TitleVisible);
+			DebugSpewAlwaysFile("bStationary: %d", (int32_t)p_spawn->bStationary);
+			DebugSpewAlwaysFile("CharClass: %d", (int32_t)p_spawn->CharClass);
+			DebugSpewAlwaysFile("EnduranceCurrent: %d", (int32_t)p_spawn->EnduranceCurrent);
+			DebugSpewAlwaysFile("MinuteTimer: %d", (int32_t)p_spawn->MinuteTimer);
+			DebugSpewAlwaysFile("LoginRelated: %d", (int32_t)p_spawn->LoginRelated);
+			DebugSpewAlwaysFile("Mercenary: %d", (int32_t)p_spawn->Mercenary);
+			DebugSpewAlwaysFile("FallingStartZ: %d", (int32_t)p_spawn->FallingStartZ);
+			DebugSpewAlwaysFile("Zone: %d", (int32_t)p_spawn->Zone);
+			DebugSpewAlwaysFile("Light: %d", (int32_t)p_spawn->Light);
+			DebugSpewAlwaysFile("LastSecondaryUseTime: %d", (int32_t)p_spawn->LastSecondaryUseTime);
+			DebugSpewAlwaysFile("IsAttacking: %d", (int32_t)p_spawn->IsAttacking);
+			DebugSpewAlwaysFile("BearingToTarget: %d", (int32_t)p_spawn->BearingToTarget);
+			DebugSpewAlwaysFile("GMRank: %d", (int32_t)p_spawn->GMRank);
+			DebugSpewAlwaysFile("AnimationSpeedRelated: %d", (int32_t)p_spawn->AnimationSpeedRelated);
+			DebugSpewAlwaysFile("Type2: %d", (int32_t)p_spawn->Type2);
+			DebugSpewAlwaysFile("bBuffTimersOnHold: %d", (int32_t)p_spawn->bBuffTimersOnHold);
+			DebugSpewAlwaysFile("LastRangedUsedTime: %d", (int32_t)p_spawn->LastRangedUsedTime);
+			DebugSpewAlwaysFile("pRaceGenderInfo: %d", (int32_t)p_spawn->pRaceGenderInfo);
+			DebugSpewAlwaysFile("LastAttack: %d", (int32_t)p_spawn->LastAttack);
+			DebugSpewAlwaysFile("LastPrimaryUseTime: %d", (int32_t)p_spawn->LastPrimaryUseTime);
+			DebugSpewAlwaysFile("CurrIOState: %d", (int32_t)p_spawn->CurrIOState);
+			DebugSpewAlwaysFile("LastRefresh: %d", (int32_t)p_spawn->LastRefresh);
+			DebugSpewAlwaysFile("GuildStatus: %d", (int32_t)p_spawn->GuildStatus);
+			DebugSpewAlwaysFile("LastTick: %d", (int32_t)p_spawn->LastTick);
+			DebugSpewAlwaysFile("Level: %d", (int32_t)p_spawn->Level);
+			DebugSpewAlwaysFile("bAttackRelated: %d", (int32_t)p_spawn->bAttackRelated);
+			DebugSpewAlwaysFile("LoginSerial: %d", (int32_t)p_spawn->LoginSerial);
+			DebugSpewAlwaysFile("SomethingElse: %d", (int32_t)p_spawn->SomethingElse);
+			DebugSpewAlwaysFile("GM: %d", (int32_t)p_spawn->GM);
+			DebugSpewAlwaysFile("FishingETA: %d", (int32_t)p_spawn->FishingETA);
+			DebugSpewAlwaysFile("Sneak: %d", (int32_t)p_spawn->Sneak);
+			DebugSpewAlwaysFile("bAnimationOnPop: %d", (int32_t)p_spawn->bAnimationOnPop);
+			DebugSpewAlwaysFile("LastResendAddPlayerPacket: %d", (int32_t)p_spawn->LastResendAddPlayerPacket);
+			DebugSpewAlwaysFile("pViewPlayer: %d", (int32_t)p_spawn->pViewPlayer);
+			DebugSpewAlwaysFile("ACounter: %d", (int32_t)p_spawn->ACounter);
+			DebugSpewAlwaysFile("CameraOffset: %d", (int32_t)p_spawn->CameraOffset);
+			DebugSpewAlwaysFile("Meditating: %d", (int32_t)p_spawn->Meditating);
+			DebugSpewAlwaysFile("FindBits: %d", (int32_t)p_spawn->FindBits);
+			DebugSpewAlwaysFile("SecondaryTintIndex: %d", (int32_t)p_spawn->SecondaryTintIndex);
+			//DebugSpewAlwaysFilLastCollisio: e("%d", (int32_t)p_spawn->LastCollision);
+			DebugSpewAlwaysFile("PetID: %d", (int32_t)p_spawn->PetID);
+			DebugSpewAlwaysFile("Anon: %d", (int32_t)p_spawn->Anon);
+			DebugSpewAlwaysFile("RespawnTimer: %d", (int32_t)p_spawn->RespawnTimer);
+			DebugSpewAlwaysFile("LastCastNum: %d", (int32_t)p_spawn->LastCastNum);
+			DebugSpewAlwaysFile("AARank: %d", (int32_t)p_spawn->AARank);
+			DebugSpewAlwaysFile("LastCastTime: %d", (int32_t)p_spawn->LastCastTime);
+			//DebugSpewAlwaysFileqc_inf: e("%d", (int32_t)p_spawn->eqc_info);
+			DebugSpewAlwaysFile("MerchantGreed: %d", (int32_t)p_spawn->MerchantGreed);
+			DebugSpewAlwaysFile("pTouchingSwitch: %d", (int32_t)p_spawn->pTouchingSwitch);
+			DebugSpewAlwaysFile("TimeStamp: %d", (int32_t)p_spawn->TimeStamp);
+			DebugSpewAlwaysFile("HPMax: %d", (int32_t)p_spawn->HPMax);
+			DebugSpewAlwaysFile("bSummoned: %d", (int32_t)p_spawn->bSummoned);
+			DebugSpewAlwaysFile("InPvPArea: %d", (int32_t)p_spawn->InPvPArea);
+			DebugSpewAlwaysFile("HPCurrent: %d", (int32_t)p_spawn->HPCurrent);
+			DebugSpewAlwaysFile("SpellGemETA: %d", (int32_t)p_spawn->SpellGemETA);
+			DebugSpewAlwaysFile("GetMeleeRangeVar1: %d", (int32_t)p_spawn->GetMeleeRangeVar1);
+			DebugSpewAlwaysFile("Trader: %d", (int32_t)p_spawn->Trader);
+			DebugSpewAlwaysFile("SomeData: %d", (int32_t)p_spawn->SomeData);
+			DebugSpewAlwaysFile("bSwitchMoved: %d", (int32_t)p_spawn->bSwitchMoved);
+			DebugSpewAlwaysFile("MyWalkSpeed: %d", (int32_t)p_spawn->MyWalkSpeed);
+			DebugSpewAlwaysFile("HoldingAnimation: %d", (int32_t)p_spawn->HoldingAnimation);
+			DebugSpewAlwaysFile("HideMode: %d", (int32_t)p_spawn->HideMode);
+			DebugSpewAlwaysFile("Stuff: %d", (int32_t)p_spawn->Stuff);
+			DebugSpewAlwaysFile("AltAttack: %d", (int32_t)p_spawn->AltAttack);
+			DebugSpewAlwaysFile("PotionTimer: %d", (int32_t)p_spawn->PotionTimer);
+			DebugSpewAlwaysFile("HmmWhat: %d", (int32_t)p_spawn->HmmWhat);
+			DebugSpewAlwaysFile("PvPFlag: %d", (int32_t)p_spawn->PvPFlag);
+			DebugSpewAlwaysFile("GuildID: %d", (int32_t)p_spawn->GuildID);
+			DebugSpewAlwaysFile("RunSpeed: %d", (int32_t)p_spawn->RunSpeed);
+			DebugSpewAlwaysFile("ManaMax: %d", (int32_t)p_spawn->ManaMax);
+			DebugSpewAlwaysFile("LastMealTime: %d", (int32_t)p_spawn->LastMealTime);
+			DebugSpewAlwaysFile("StandState: %d", (int32_t)p_spawn->StandState);
+			DebugSpewAlwaysFile("LastTimeStoodStill: %d", (int32_t)p_spawn->LastTimeStoodStill);
+			DebugSpewAlwaysFile("DoSpecialMelee: %d", (int32_t)p_spawn->DoSpecialMelee);
+			DebugSpewAlwaysFile("CombatSkillTicks: %d", (int32_t)p_spawn->CombatSkillTicks);
+			DebugSpewAlwaysFile("MissileRangeToTarget: %d", (int32_t)p_spawn->MissileRangeToTarget);
+			DebugSpewAlwaysFile("SitStartTime: %d", (int32_t)p_spawn->SitStartTime);
+			//DebugSpewAlwaysFilrealEstateItemGui: e("%d", (int32_t)p_spawn->realEstateItemGuid);
+			DebugSpewAlwaysFile("bShowHelm: %d", (int32_t)p_spawn->bShowHelm);
+			DebugSpewAlwaysFile("MasterID: %d", (int32_t)p_spawn->MasterID);
+			DebugSpewAlwaysFile("CombatSkillUsed: %d", (int32_t)p_spawn->CombatSkillUsed);
+			DebugSpewAlwaysFile("Handle: %d", (int32_t)p_spawn->Handle);
+			DebugSpewAlwaysFile("FD: %d", (int32_t)p_spawn->FD);
+			DebugSpewAlwaysFile("PrimaryTintIndex: %d", (int32_t)p_spawn->PrimaryTintIndex);
+			DebugSpewAlwaysFile("AFK: %d", (int32_t)p_spawn->AFK);
+			DebugSpewAlwaysFile("EnduranceMax: %d", (int32_t)p_spawn->EnduranceMax);
+			DebugSpewAlwaysFile("NextIntimidateTime: %d", (int32_t)p_spawn->NextIntimidateTime);
+			DebugSpewAlwaysFile("SpellCooldownETA: %d", (int32_t)p_spawn->SpellCooldownETA);
+			DebugSpewAlwaysFile("Linkdead: %d", (int32_t)p_spawn->Linkdead);
+			DebugSpewAlwaysFile("Buyer: %d", (int32_t)p_spawn->Buyer);
+			DebugSpewAlwaysFile("LastTrapDamageTime: %d", (int32_t)p_spawn->LastTrapDamageTime);
+			DebugSpewAlwaysFile("bTempPet: %d", (int32_t)p_spawn->bTempPet);
+			DebugSpewAlwaysFile("Title: %d", (int32_t)p_spawn->Title);
+			DebugSpewAlwaysFile("FishingEvent: %d", (int32_t)p_spawn->FishingEvent);
+			DebugSpewAlwaysFile("Suffix: %d", (int32_t)p_spawn->Suffix);
+			DebugSpewAlwaysFile("RealEstateItemId: %d", (int32_t)p_spawn->RealEstateItemId);
+			DebugSpewAlwaysFile("WarCry: %d", (int32_t)p_spawn->WarCry);
+			DebugSpewAlwaysFile("Blind: %d", (int32_t)p_spawn->Blind);
+			DebugSpewAlwaysFile("bBetaBuffed: %d", (int32_t)p_spawn->bBetaBuffed);
+			DebugSpewAlwaysFile("NextSwim: %d", (int32_t)p_spawn->NextSwim);
+			DebugSpewAlwaysFile("CorpseDragCount: %d", (int32_t)p_spawn->CorpseDragCount);
+			DebugSpewAlwaysFile("IntimidateCount: %d", (int32_t)p_spawn->IntimidateCount);
+			DebugSpewAlwaysFile("berserker: %d", (int32_t)p_spawn->berserker);
+			DebugSpewAlwaysFile("StunTimer: %d", (int32_t)p_spawn->StunTimer);
+			DebugSpewAlwaysFile("LFG: %d", (int32_t)p_spawn->LFG);
+			//DebugSpewAlwaysFilCastingDat: e("%d", (int32_t)p_spawn->CastingData);
+			DebugSpewAlwaysFile("ManaCurrent: %d", (int32_t)p_spawn->ManaCurrent);
+			DebugSpewAlwaysFile("DragNames: %d", (int32_t)p_spawn->DragNames);
+			DebugSpewAlwaysFile("Deity: %d", (int32_t)p_spawn->Deity);
+			DebugSpewAlwaysFile("NpcTintIndex: %d", (int32_t)p_spawn->NpcTintIndex);
+			DebugSpewAlwaysFile("ppUDP: %d", (int32_t)p_spawn->ppUDP);
+			DebugSpewAlwaysFile("bAlwaysShowAura: %d", (int32_t)p_spawn->bAlwaysShowAura);
 		}
 	}
 }
@@ -435,7 +596,7 @@ void MQ2Stats::CommandRunTimes()
 		exec_time += it->second;
 	}
 
-    WriteChatf("%-32s %-8s   %-8s", "FUNCTION", "EXEC", "TOTAL");
+	WriteChatf("%-32s %-8s   %-8s", "FUNCTION", "EXEC", "TOTAL");
 
 	for(auto it = m_time_counts.begin(); it != m_time_counts.end(); it++)
 	{
@@ -457,7 +618,7 @@ void MQ2Stats::SetClientIndex(PCHAR index)
 	}
 }
 
-bool MQ2Stats::GetMember(MQ2VARPTR p_var, PCHAR Member, PCHAR Index, MQ2TYPEVAR& Dest)
+bool MQ2Stats::GetMember(MQ2VARPTR p_var, PCHAR Member, PCHAR index, MQ2TYPEVAR& Dest)
 {
 	FunctionTimer timer(m_time_counts[__FUNCTION__]);
 
@@ -471,7 +632,7 @@ bool MQ2Stats::GetMember(MQ2VARPTR p_var, PCHAR Member, PCHAR Index, MQ2TYPEVAR&
 
 				Dest.Type  = pIntType;
 				Dest.DWord = m_p_data_index->spawn_id;
-				break;
+				return true;
 
 			case ZoneID:
 
@@ -668,30 +829,35 @@ bool MQ2Stats::GetMember(MQ2VARPTR p_var, PCHAR Member, PCHAR Index, MQ2TYPEVAR&
 			DWORD range = 100;
 
 			std::vector<std::string> args;
-			Split(std::string(Index), args);
+			Split(std::string(index), args, ',');
 			if(args.size() > 0)
 			{
 				range = std::stoi(args[0]);
 			}
 
-			GetAggroed(DataTypeTemp, MAX_STRING, range);
+			GetAggroed(&DataTypeTemp[0], MAX_STRING, range);
 
 			Dest.Type = pStringType;
 			Dest.Ptr  = &DataTypeTemp[0];
 			return true;
 		}
-        case CorpseList:
+		case CorpseList:
 		{
-			DWORD range = 100;
-
+			DWORD range     = 100;
+			CorpseType type = NPC;
 			std::vector<std::string> args;
-			Split(std::string(Index), args);
-			if(args.size() > 0)
+			Split(std::string(index), args, ',');
+			if(args.size() == 1)
 			{
 				range = std::stoi(args[0]);
 			}
+			else if(args.size() == 2)
+			{
+				range = std::stoi(args[0]);
+				type  = static_cast<CorpseType>(std::stoi(args[1]));
+			}
 
-			GetCorpses(DataTypeTemp, MAX_STRING, range);
+			GetCorpses(&DataTypeTemp[0], MAX_STRING, range, type);
 
 			Dest.Type = pStringType;
 			Dest.Ptr  = &DataTypeTemp[0];
@@ -721,11 +887,27 @@ bool MQ2Stats::FromString(MQ2VARPTR& p_var, PCHAR p_src)
 	return false;
 }
 
+void CommandChase(PSPAWNINFO p_char, char* p_line)
+{
+	if(nullptr != p_stats)
+	{
+		p_stats->CommandChase(p_line);
+	}
+}
+
 void CommandDrag(PSPAWNINFO p_char, char* p_line)
 {
 	if(nullptr != p_stats)
 	{
 		p_stats->CommandDrag(p_line);
+	}
+}
+
+void CommandDumpSpawn(PSPAWNINFO p_char, char* p_line)
+{
+	if(nullptr != p_stats)
+	{
+		p_stats->CommandDumpSpawn(p_line);
 	}
 }
 
@@ -789,20 +971,20 @@ PLUGIN_API VOID SetGameState(DWORD GameState)
 		}
 
 		break;
-	
-    case GAMESTATE_CHARCREATE:
+
+	case GAMESTATE_CHARCREATE:
 	case GAMESTATE_CHARSELECT:
 	case GAMESTATE_POSTFRONTLOAD:
 	case GAMESTATE_PRECHARSELECT:
 	case GAMESTATE_SOMETHING:
 	case GAMESTATE_UNLOADING:
 	default:
-		
-        WriteChatf("Destroy case hit");
-		
+
+		WriteChatf("Destroy case hit");
+
 		if(nullptr != p_stats)
 		{
-		    WriteChatf("Destroying");
+			WriteChatf("Destroying");
 			delete p_stats;
 			p_stats = nullptr;
 		}
@@ -819,8 +1001,9 @@ PLUGIN_API VOID InitializePlugin(VOID)
 
 	AddMQ2Data("Stats", DataStats);
 
+	AddCommand("/chase", CommandChase);
 	AddCommand("/drag", CommandDrag);
-	AddCommand("/dumpspawn", CommandDrag);
+	AddCommand("/dumpspawn", CommandDumpSpawn);
 	AddCommand("/missing", CommandMissing);
 	AddCommand("/push", CommandPush);
 	AddCommand("/runtimes", CommandRunTimes);
@@ -834,6 +1017,7 @@ PLUGIN_API VOID ShutdownPlugin(VOID)
 	RemoveCommand("/missing");
 	RemoveCommand("/dumpspawn");
 	RemoveCommand("/drag");
+	RemoveCommand("/chase");
 
 	RemoveMQ2Data("Stats");
 
@@ -847,19 +1031,19 @@ PLUGIN_API VOID ShutdownPlugin(VOID)
 	}
 }
 
-PLUGIN_API VOID OnNetBotMSG(PCHAR name, PCHAR message)
-{
-	if(nullptr != p_stats)
-	{
-		p_stats->ParseMessage(name, message);
-	}
-}
-
 PLUGIN_API VOID OnPulse(VOID)
 {
 	if(nullptr != p_stats)
 	{
 		p_stats->Pulse();
+	}
+}
+
+// This is called when we receive the EQ_BEGIN_ZONE packet is received
+PLUGIN_API VOID OnBeginZone(VOID)
+{
+	if(nullptr != p_stats)
+	{
 	}
 }
 
@@ -872,13 +1056,33 @@ PLUGIN_API void OnEndZone(void)
 	}
 }
 
-//PLUGIN_API VOID OnNetBotEVENT(PCHAR message)
-//{
-//	if(nullptr != p_stats)
-//	{
-//		p_stats->ParseEvent(message);
-//	}
-//}
+PLUGIN_API VOID OnNetBotEVENT(PCHAR p_char)
+{
+    if(nullptr != p_stats)
+    {
+		WriteChatf("Received event %s", p_char);
+
+		if(!strncmp(p_char, "NBQUIT=", 7))
+		{
+
+		}
+		else if(!strncmp(p_char, "NBJOIN=", 7))
+		{
+			WriteChatf("Received request");
+			p_stats->PublishRequest();
+		}
+		else if(!strncmp(p_char, "NBEXIT", 6))
+		{
+		}
+    }
+}
+PLUGIN_API VOID OnNetBotMSG(PCHAR name, PCHAR message)
+{
+	if(nullptr != p_stats)
+	{
+		p_stats->ParseMessage(name, message);
+	}
+}
 
 //// This is called each time a spawn is removed from a zone (removed from EQ's list of spawns).
 //// It is NOT called for each existing spawn when a plugin shuts down.
@@ -954,9 +1158,4 @@ PLUGIN_API void OnEndZone(void)
 //PLUGIN_API VOID OnRemoveGroundItem(PGROUNDITEM pGroundItem)
 //{
 //  WriteChatf("MQ2Stats::OnRemoveGroundItem(%d)", pGroundItem->DropID);
-//}
-
-//// This is called when we receive the EQ_BEGIN_ZONE packet is received
-//PLUGIN_API VOID OnBeginZone(VOID)
-//{
 //}

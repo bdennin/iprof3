@@ -51,6 +51,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Chase.cpp" />
+    <ClCompile Include="Client.cpp" />
     <ClCompile Include="MQ2Stats.cpp" />
     <ClCompile Include="SpellQueue.cpp" />
   </ItemGroup>
