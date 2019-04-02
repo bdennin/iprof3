@@ -38,13 +38,13 @@ inline bool MQ2Stats::Contains(std::string& words, std::string& match)
 
 MQ2Stats::MQ2Stats()
 	: MQ2Type("Stats")
-	, m_p_send(nullptr)
+	//, m_p_send(nullptr)
 	, m_p_data_index(nullptr)
 	, m_p_self(nullptr)
 	, m_p_target(nullptr)
+	, m_p_client(nullptr)
 	, m_p_spell_queue(nullptr)
 	, m_p_chase(nullptr)
-	, m_p_client(nullptr)
 	, m_clients()
 	, m_time_counts()
 	, m_time_start(0)
@@ -59,10 +59,11 @@ MQ2Stats::MQ2Stats()
 {
 	FunctionTimer timer(m_time_counts[__FUNCTION__]);
 
-	m_p_send = FindNetSendFunction();
+	//m_p_send = FindNetSendFunction();
 
 	m_p_self = &m_clients[GetCharInfo()->Name];
 
+	m_p_client      = new Client(0xC0A8006A, 44444);
 	m_p_spell_queue = new SpellQueue();
 	m_p_chase       = new Chase();
 
@@ -104,6 +105,7 @@ MQ2Stats::~MQ2Stats()
 
 	delete m_p_chase;
 	delete m_p_spell_queue;
+    delete m_p_client;
 }
 
 void MQ2Stats::Pulse()
@@ -112,45 +114,47 @@ void MQ2Stats::Pulse()
 
 	if(gGameState == GAMESTATE_INGAME)
 	{
-		if(nullptr == m_p_send)
-		{
-			m_p_send = FindNetSendFunction();
-		}
+		//if(nullptr == m_p_send)
+		//{
+		//	m_p_send = FindNetSendFunction();
+		//}
 
 		// Cannot do anything without server distribution
-		if(nullptr != m_p_send)
+		//if(nullptr != m_p_send)
+		//{
+		std::clock_t now = std::clock();
+
+		if(now > m_last_tenth + 100)
 		{
-			std::clock_t now = std::clock();
+			m_last_tenth = now;
 
-			if(now > m_last_tenth + 100)
-			{
-				m_last_tenth = now;
+            HandleNetwork();
 
-				PublishStats(false);
+			//PublishStats(false);
 
-				HandleCasting();
-			}
-
-			if(now > m_last_half_second + 500)
-			{
-				m_last_half_second = now;
-
-				PublishLocation(false);
-
-				HandleMovement();
-			}
-
-			if(now > m_last_second + 1000)
-			{
-				m_last_second = now;
-
-				PublishZone(false);
-
-				HandleCorpse();
-				HandleDrag();
-				HandleEvents();
-			}
+			HandleCasting();
 		}
+
+		if(now > m_last_half_second + 500)
+		{
+			m_last_half_second = now;
+
+			//PublishLocation(false);
+
+			HandleMovement();
+		}
+
+		if(now > m_last_second + 1000)
+		{
+			m_last_second = now;
+
+			//PublishZone(false);
+
+			HandleCorpse();
+			HandleDrag();
+			HandleEvents();
+		}
+		//}
 	}
 }
 
@@ -1056,33 +1060,33 @@ PLUGIN_API void OnEndZone(void)
 	}
 }
 
-PLUGIN_API VOID OnNetBotEVENT(PCHAR p_char)
-{
-    if(nullptr != p_stats)
-    {
-		WriteChatf("Received event %s", p_char);
-
-		if(!strncmp(p_char, "NBQUIT=", 7))
-		{
-
-		}
-		else if(!strncmp(p_char, "NBJOIN=", 7))
-		{
-			WriteChatf("Received request");
-			p_stats->PublishRequest();
-		}
-		else if(!strncmp(p_char, "NBEXIT", 6))
-		{
-		}
-    }
-}
-PLUGIN_API VOID OnNetBotMSG(PCHAR name, PCHAR message)
-{
-	if(nullptr != p_stats)
-	{
-		p_stats->ParseMessage(name, message);
-	}
-}
+//PLUGIN_API VOID OnNetBotEVENT(PCHAR p_char)
+//{
+//	if(nullptr != p_stats)
+//	{
+//		WriteChatf("Received event %s", p_char);
+//
+//		if(!strncmp(p_char, "NBQUIT=", 7))
+//		{
+//		}
+//		else if(!strncmp(p_char, "NBJOIN=", 7))
+//		{
+//			WriteChatf("Received request");
+//			p_stats->PublishRequest();
+//		}
+//		else if(!strncmp(p_char, "NBEXIT", 6))
+//		{
+//		}
+//	}
+//}
+//
+//PLUGIN_API VOID OnNetBotMSG(PCHAR name, PCHAR message)
+//{
+//	if(nullptr != p_stats)
+//	{
+//		p_stats->ParseMessage(name, message);
+//	}
+//}
 
 //// This is called each time a spawn is removed from a zone (removed from EQ's list of spawns).
 //// It is NOT called for each existing spawn when a plugin shuts down.

@@ -60,71 +60,71 @@ public:
 		m_p_chase->DoStop();
 	}
 
-	inline void ParseMessage(std::string name, std::string message)
-	{
-		FunctionTimer timer(m_time_counts[__FUNCTION__]);
+	//inline void ParseMessage(std::string name, std::string message)
+	//{
+	//	FunctionTimer timer(m_time_counts[__FUNCTION__]);
 
-		std::vector<std::string> tokens;
+	//	std::vector<std::string> tokens;
 
-		Split(message, tokens);
+	//	Split(message, tokens);
 
-		SpawnData& spawn = m_clients[name];
-		spawn.name       = name;
+	//	SpawnData& spawn = m_clients[name];
+	//	spawn.name       = name;
 
-		switch(tokens.size())
-		{
-		case 0:
-			PublishLocation(true);
-			PublishStats(true);
-			PublishZone(true);
+	//	switch(tokens.size())
+	//	{
+	//	case 0:
+	//		PublishLocation(true);
+	//		PublishStats(true);
+	//		PublishZone(true);
 
-			WriteChatf("Publishing all.");
-			break;
+	//		WriteChatf("Publishing all.");
+	//		break;
 
-		case 3:
-			spawn.spawn_id = std::stoi(tokens[0]);
-			spawn.zone_id  = std::stoi(tokens[1]);
-			spawn.level    = std::stoi(tokens[2]);
-			break;
+	//	case 3:
+	//		spawn.spawn_id = std::stoi(tokens[0]);
+	//		spawn.zone_id  = std::stoi(tokens[1]);
+	//		spawn.level    = std::stoi(tokens[2]);
+	//		break;
 
-		case 4:
-			spawn.hp_percent    = std::stoi(tokens[0]);
-			spawn.mana_percent  = std::stoi(tokens[1]);
-			spawn.aggro_percent = std::stoi(tokens[2]);
-			spawn.zoning        = std::stoi(tokens[3]);
-			break;
+	//	case 4:
+	//		spawn.hp_percent    = std::stoi(tokens[0]);
+	//		spawn.mana_percent  = std::stoi(tokens[1]);
+	//		spawn.aggro_percent = std::stoi(tokens[2]);
+	//		spawn.zoning        = std::stoi(tokens[3]);
+	//		break;
 
-		case 5:
-			spawn.heading = std::stoi(tokens[0]);
-			spawn.angle   = std::stoi(tokens[1]);
-			spawn.x       = std::stoi(tokens[2]);
-			spawn.y       = std::stoi(tokens[3]);
-			spawn.z       = std::stoi(tokens[4]);
-			break;
+	//	case 5:
+	//		spawn.heading = std::stoi(tokens[0]);
+	//		spawn.angle   = std::stoi(tokens[1]);
+	//		spawn.x       = std::stoi(tokens[2]);
+	//		spawn.y       = std::stoi(tokens[3]);
+	//		spawn.z       = std::stoi(tokens[4]);
+	//		break;
 
-		default:
+	//	default:
 
-			WriteChatf("Unexpected message type received.");
-			break;
-		}
-	}
+	//		WriteChatf("Unexpected message type received.");
+	//		break;
+	//	}
+	//}
 
-	inline void PublishRequest()
-	{
-		if(nullptr != m_p_send)
-		{
-			sprintf_s(m_send_buffer,
-					  MAX_STRING,
-					  "[NS]|");
+	//inline void PublishRequest()
+	//{
+	//	if(nullptr != m_p_send)
+	//	{
+	//		sprintf_s(m_send_buffer,
+	//				  MAX_STRING,
+	//				  "[NS]|");
 
-			m_p_send(m_send_buffer);
-		}
-	}
+	//		m_p_send(m_send_buffer);
+	//	}
+	//}
 
 private:
 	struct SpawnData
 	{
-		std::string name;
+		char name[16];
 		uint16_t spawn_id;
 		uint16_t zone_id;
 		uint8_t level;
@@ -183,103 +183,108 @@ private:
 		PC,
 	};
 
-	inline void PublishLocation(bool force)
+	//inline void PublishLocation(bool force)
+	//{
+	//	FunctionTimer timer(m_time_counts[__FUNCTION__]);
+
+	//	if(nullptr != m_p_send)
+	//	{
+	//		PCHARINFO p_char   = GetCharInfo();
+	//		PSPAWNINFO p_spawn = p_char->pSpawn;
+
+	//		int16_t heading = (nullptr != p_spawn) ? static_cast<int16_t>(p_spawn->Heading * 0.7 + 0.5) : m_p_self->heading;
+	//		int16_t angle   = (nullptr != p_spawn) ? static_cast<int16_t>(p_spawn->CameraAngle + 0.5) : m_p_self->angle;
+	//		int16_t x       = (nullptr != p_spawn) ? static_cast<int16_t>(p_spawn->X + 0.5) : m_p_self->x;
+	//		int16_t y       = (nullptr != p_spawn) ? static_cast<int16_t>(p_spawn->Y + 0.5) : m_p_self->y;
+	//		int16_t z       = (nullptr != p_spawn) ? static_cast<int16_t>(p_spawn->Z + 0.5) : m_p_self->z;
+
+	//		if(force
+	//		   || abs(heading - m_p_self->heading) >= 1.0
+	//		   || abs(angle - m_p_self->angle) >= 1.0
+	//		   || abs(x - m_p_self->x) >= 1.0
+	//		   || abs(y - m_p_self->y) >= 1.0
+	//		   || abs(z - m_p_self->z) >= 1.0)
+	//		{
+	//			sprintf_s(m_send_buffer,
+	//					  MAX_STRING,
+	//					  "[NS]|%hd %hd %hd %hd %hd",
+	//					  heading,
+	//					  angle,
+	//					  x,
+	//					  y,
+	//					  z);
+
+	//			m_p_send(m_send_buffer);
+	//		}
+	//	}
+	//}
+
+	//inline void PublishStats(bool force)
+	//{
+	//	FunctionTimer timer(m_time_counts[__FUNCTION__]);
+
+	//	if(nullptr != m_p_send)
+	//	{
+	//		PCHARINFO p_char   = GetCharInfo();
+	//		PSPAWNINFO p_spawn = p_char->pSpawn;
+
+	//		uint8_t hp_percent    = (nullptr != p_spawn) ? static_cast<uint8_t>(static_cast<FLOAT>(p_spawn->HPCurrent) / static_cast<FLOAT>(p_spawn->HPMax) * 100) : m_p_self->hp_percent;
+	//		uint8_t mana_percent  = (nullptr != p_spawn) ? static_cast<uint8_t>(static_cast<FLOAT>(p_spawn->ManaCurrent) / static_cast<FLOAT>(p_spawn->ManaMax) * 100) : m_p_self->mana_percent;
+	//		uint8_t aggro_percent = (nullptr != pAggroInfo) ? static_cast<uint8_t>(pAggroInfo->aggroData[AD_Player].AggroPct + 0.5) : m_p_self->aggro_percent;
+	//		uint8_t zoning        = gbInZone ? 0 : 1;
+
+	//		if(force
+	//		   || hp_percent != m_p_self->hp_percent
+	//		   || mana_percent != m_p_self->mana_percent
+	//		   || aggro_percent != m_p_self->aggro_percent
+	//		   || zoning != m_p_self->zoning)
+	//		{
+	//			sprintf_s(m_send_buffer,
+	//					  MAX_STRING,
+	//					  "[NS]|%hhu %hhu %hhu %hhu",
+	//					  hp_percent,
+	//					  mana_percent,
+	//					  aggro_percent,
+	//					  zoning);
+
+	//			m_p_send(m_send_buffer);
+	//		}
+	//	}
+	//}
+
+	//inline void PublishZone(bool force)
+	//{
+	//	FunctionTimer timer(m_time_counts[__FUNCTION__]);
+
+	//	if(nullptr != m_p_send)
+	//	{
+	//		PCHARINFO p_char   = GetCharInfo();
+	//		PSPAWNINFO p_spawn = p_char->pSpawn;
+
+	//		uint16_t spawn_id = (nullptr != p_spawn) ? static_cast<uint16_t>(p_spawn->SpawnID) : 0;
+	//		uint16_t zone_id  = (nullptr != p_char) ? static_cast<uint16_t>(p_char->zoneId) : 0;
+	//		uint8_t level     = (nullptr != p_spawn) ? static_cast<uint8_t>(p_spawn->Level) : m_p_self->level;
+
+	//		if(force
+	//		   || spawn_id != m_p_self->spawn_id
+	//		   || zone_id != m_p_self->zone_id
+	//		   || level != m_p_self->level)
+	//		{
+	//			sprintf_s(m_send_buffer,
+	//					  MAX_STRING,
+	//					  "[NS]|%hu %hu %hhu",
+	//					  spawn_id,
+	//					  zone_id,
+	//					  level);
+
+	//			m_p_send(m_send_buffer);
+	//		}
+	//	}
+	//}
+
+	inline void HandleNetwork()
 	{
 		FunctionTimer timer(m_time_counts[__FUNCTION__]);
-
-		if(nullptr != m_p_send)
-		{
-			PCHARINFO p_char   = GetCharInfo();
-			PSPAWNINFO p_spawn = p_char->pSpawn;
-
-			int16_t heading = (nullptr != p_spawn) ? static_cast<int16_t>(p_spawn->Heading * 0.7 + 0.5) : m_p_self->heading;
-			int16_t angle   = (nullptr != p_spawn) ? static_cast<int16_t>(p_spawn->CameraAngle + 0.5) : m_p_self->angle;
-			int16_t x       = (nullptr != p_spawn) ? static_cast<int16_t>(p_spawn->X + 0.5) : m_p_self->x;
-			int16_t y       = (nullptr != p_spawn) ? static_cast<int16_t>(p_spawn->Y + 0.5) : m_p_self->y;
-			int16_t z       = (nullptr != p_spawn) ? static_cast<int16_t>(p_spawn->Z + 0.5) : m_p_self->z;
-
-			if(force
-			   || abs(heading - m_p_self->heading) >= 1.0
-			   || abs(angle - m_p_self->angle) >= 1.0
-			   || abs(x - m_p_self->x) >= 1.0
-			   || abs(y - m_p_self->y) >= 1.0
-			   || abs(z - m_p_self->z) >= 1.0)
-			{
-				sprintf_s(m_send_buffer,
-						  MAX_STRING,
-						  "[NS]|%hd %hd %hd %hd %hd",
-						  heading,
-						  angle,
-						  x,
-						  y,
-						  z);
-
-				m_p_send(m_send_buffer);
-			}
-		}
-	}
-
-	inline void PublishStats(bool force)
-	{
-		FunctionTimer timer(m_time_counts[__FUNCTION__]);
-
-		if(nullptr != m_p_send)
-		{
-			PCHARINFO p_char   = GetCharInfo();
-			PSPAWNINFO p_spawn = p_char->pSpawn;
-
-			uint8_t hp_percent    = (nullptr != p_spawn) ? static_cast<uint8_t>(static_cast<FLOAT>(p_spawn->HPCurrent) / static_cast<FLOAT>(p_spawn->HPMax) * 100) : m_p_self->hp_percent;
-			uint8_t mana_percent  = (nullptr != p_spawn) ? static_cast<uint8_t>(static_cast<FLOAT>(p_spawn->ManaCurrent) / static_cast<FLOAT>(p_spawn->ManaMax) * 100) : m_p_self->mana_percent;
-			uint8_t aggro_percent = (nullptr != pAggroInfo) ? static_cast<uint8_t>(pAggroInfo->aggroData[AD_Player].AggroPct + 0.5) : m_p_self->aggro_percent;
-			uint8_t zoning        = gbInZone ? 0 : 1;
-
-			if(force
-			   || hp_percent != m_p_self->hp_percent
-			   || mana_percent != m_p_self->mana_percent
-			   || aggro_percent != m_p_self->aggro_percent
-			   || zoning != m_p_self->zoning)
-			{
-				sprintf_s(m_send_buffer,
-						  MAX_STRING,
-						  "[NS]|%hhu %hhu %hhu %hhu",
-						  hp_percent,
-						  mana_percent,
-						  aggro_percent,
-						  zoning);
-
-				m_p_send(m_send_buffer);
-			}
-		}
-	}
-
-	inline void PublishZone(bool force)
-	{
-		FunctionTimer timer(m_time_counts[__FUNCTION__]);
-
-		if(nullptr != m_p_send)
-		{
-			PCHARINFO p_char   = GetCharInfo();
-			PSPAWNINFO p_spawn = p_char->pSpawn;
-
-			uint16_t spawn_id = (nullptr != p_spawn) ? static_cast<uint16_t>(p_spawn->SpawnID) : 0;
-			uint16_t zone_id  = (nullptr != p_char) ? static_cast<uint16_t>(p_char->zoneId) : 0;
-			uint8_t level     = (nullptr != p_spawn) ? static_cast<uint8_t>(p_spawn->Level) : m_p_self->level;
-
-			if(force
-			   || spawn_id != m_p_self->spawn_id
-			   || zone_id != m_p_self->zone_id
-			   || level != m_p_self->level)
-			{
-				sprintf_s(m_send_buffer,
-						  MAX_STRING,
-						  "[NS]|%hu %hu %hhu",
-						  spawn_id,
-						  zone_id,
-						  level);
-
-				m_p_send(m_send_buffer);
-			}
-		}
 	}
 
 	inline void HandleCasting()
@@ -424,8 +429,8 @@ private:
 			PSPAWNINFO p_spawn = (PSPAWNINFO)GetSpawnByID(p_client->spawn_id);
 
 			if(nullptr != p_spawn
-			   && !p_spawn->Linkdead
-			   && Contains(std::string(p_spawn->Name), p_client->name))
+			   && !p_spawn->Linkdead)
+			   //&& Contains(std::string(p_spawn->Name), p_client->name))
 			{
 				return true;
 			}
@@ -603,13 +608,13 @@ private:
 
 	char m_send_buffer[MAX_STRING];
 	char m_command_buffer[MAX_STRING];
-	NetSendFunction m_p_send;
+	//NetSendFunction m_p_send;
 	SpawnData* m_p_data_index;
 	SpawnData* m_p_self;
 	SpawnData* m_p_target;
+	Client* m_p_client;
 	SpellQueue* m_p_spell_queue;
 	Chase* m_p_chase;
-	client* m_p_client;
 	std::map<std::string, SpawnData> m_clients;
 	std::map<std::string, std::clock_t> m_time_counts; // Function run time count
 	std::clock_t m_time_start;

@@ -1,131 +1,150 @@
 
+#include "UDPSocket.cpp"
+#include "../MQ2Plugin.h"
+
 #undef UNICODE
 
+#include <atomic>
+#include <chrono>
 #include <iostream>
+#include <map>
+#include <mutex>
+#include <sstream>
+#include <thread>
+#include <vector>
 
 #include <inttypes.h>
 #include <stdio.h>
 #include <stdlib.h>
 
-#define WIN32_LEAN_AND_MEAN
-
-#include <windows.h>
-#include <winsock2.h>
-#include <ws2tcpip.h>
-
-// Need to link with Ws2_32.lib
-#pragma comment(lib, "Ws2_32.lib")
-
 #define DEBUG 1
-#define DEFAULT_PORT 44444
 
-class client
+class Client
 {
 public:
-	client()
-		: m_socket(INVALID_SOCKET)
+	struct SpawnData
 	{
-		if(init_socket() < 0)
-		{
-			std::cout << "Error creating socket!\n";
-		}
-		else
-		{
-			std::cout << "Socket created.\n";
-		}
+		char name[16];
+		uint16_t spawn_id;
+		uint16_t zone_id;
+		uint8_t level;
+		int16_t heading;
+		int16_t angle;
+		int16_t x;
+		int16_t y;
+		int16_t z;
+		uint8_t hp_percent;
+		uint8_t mana_percent;
+		uint8_t aggro_percent;
+		uint8_t zoning;
+	};
+
+	std::map<std::string, SpawnData> m_clients;
+
+	Client(uint32_t ip_addr, uint16_t port)
+		: m_p_socket(nullptr)
+		, m_is_running(false)
+		, m_p_send_thread(nullptr)
+		, m_p_recv_thread(nullptr)
+	{
+		m_p_socket   = new UDPSocket(ip_addr, port);
+		m_is_running = true;
+
+		m_p_recv_thread = new std::thread(&Client::recv_thread, this);
+		m_p_send_thread = new std::thread(&Client::send_thread, this);
 	}
 
-	~client()
+	~Client()
 	{
-		if(INVALID_SOCKET != m_socket)
-		{
-			shutdown(m_socket, SD_SEND);
-			closesocket(m_socket);
-			WSACleanup();
-		}
+		m_is_running = false;
+
+		m_p_send_thread->join();
+		m_p_recv_thread->join();
+
+		delete m_p_send_thread;
+		delete m_p_recv_thread;
+		delete m_p_socket;
 	}
 
-	int32_t init_socket()
+	void recv_thread()
 	{
-		// Initialize Winsock
-		if(0 != WSAStartup(MAKEWORD(2, 2), &m_wsa))
+		char bytes[max_size];
+		int32_t num_bytes = 0;
+		SpawnData arg;
+
+		while(m_is_running)
 		{
-			std::cout << "WSAStartup failed." << std::endl;
-			return -1;
-		}
+			WriteChatf("Receiving");
 
-		// Create a socket for connecting to server
-		m_socket = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
-		if(INVALID_SOCKET == m_socket)
-		{
-			std::cout << "socket failed with error: " << WSAGetLastError() << std::endl;
-			//freeaddrinfo(result);
-			WSACleanup();
-			return -1;
-		}
+			num_bytes = m_p_socket->Receive(bytes, max_size);
 
-		// Set socket timeout
-		timeval duration;
-		duration.tv_sec  = 1;
-		duration.tv_usec = 0;
+            WriteChatf("Done receiving");
 
-		int32_t timeout;
-
-		if(SOCKET_ERROR == setsockopt(m_socket, SOL_SOCKET, SO_RCVTIMEO, (const char*)&duration, sizeof(timeout)))
-		{
-			std::cout << "Failed to set socket time out.\n";
-			return -1;
-		}
-
-		// Assign server address
-		ZeroMemory(&m_server_addr, sizeof(m_server_addr));
-		m_server_addr.sin_family      = AF_INET;
-		m_server_addr.sin_addr.s_addr = htonl(0xC0A8006A);
-		m_server_addr.sin_port        = htons(DEFAULT_PORT);
-
-		return 0;
-	}
-
-	int32_t send(char* p_bytes, int32_t num_bytes)
-	{
-		int32_t byte_count = 0;
-
-		if(INVALID_SOCKET != m_socket)
-		{
-			byte_count = sendto(m_socket, p_bytes, num_bytes, 0, (struct sockaddr*)&m_server_addr, sizeof(m_server_addr));
-
-#ifdef DEBUG
-			if(SOCKET_ERROR != byte_count)
+			for(int32_t i = 0; i < num_bytes; i += struct_size)
 			{
-				std::cout << "Sent " << byte_count << " bytes to server: " << p_bytes << std::endl;
-			}
-			else
-			{
-				std::cout << "Error on socket: " << WSAGetLastError() << "\n";
-			}
-#endif
-		}
+				// Copy directly from memory into object
+				memcpy(&arg, bytes + i, struct_size);
 
-		return byte_count;
+				// Get the name and copy to dictionary
+				m_clients[arg.name] = arg;
+			}
+		}
 	}
 
-	int32_t receive(char* p_bytes, int32_t max_bytes)
+	void send_thread()
 	{
-		sockaddr_in addr;
-		int32_t size_addr  = sizeof(addr);
-		int32_t byte_count = 0;
+		const auto send_delay_ms = std::chrono::milliseconds(100);
 
-		do
+		char bytes[max_size];
+		int32_t num_bytes = 0;
+		SpawnData* p_arg;
+
+		while(m_is_running)
 		{
-			byte_count += recvfrom(m_socket, p_bytes, max_bytes - byte_count, 0, (struct sockaddr*)&addr, &size_addr);
+			// Sleep briefly
+			std::this_thread::sleep_for(send_delay_ms);
 
-		} while(byte_count < max_bytes);
+            WriteChatf("attemping send");
 
-		return byte_count;
+            // Collect local data
+			PCHARINFO p_char   = GetCharInfo();
+			PSPAWNINFO p_spawn = p_char->pSpawn;
+
+			if(nullptr != p_spawn)
+			{
+				p_arg = &m_clients[p_spawn->Name];
+
+                strcpy_s(p_arg->name, p_spawn->Name);
+
+				p_arg->spawn_id      = static_cast<uint16_t>(p_spawn->SpawnID);
+				p_arg->zone_id       = static_cast<uint16_t>(p_char->zoneId);
+				p_arg->level         = static_cast<uint8_t>(p_spawn->Level);
+				p_arg->heading       = static_cast<int16_t>(p_spawn->Heading * 0.7 + 0.5);
+				p_arg->angle         = static_cast<int16_t>(p_spawn->CameraAngle + 0.5);
+				p_arg->x             = static_cast<int16_t>(p_spawn->X + 0.5);
+				p_arg->y             = static_cast<int16_t>(p_spawn->Y + 0.5);
+				p_arg->z             = static_cast<int16_t>(p_spawn->Z + 0.5);
+				p_arg->hp_percent    = static_cast<uint8_t>(static_cast<FLOAT>(p_spawn->HPCurrent) / static_cast<FLOAT>(p_spawn->HPMax) * 100);
+				p_arg->mana_percent  = static_cast<uint8_t>(static_cast<FLOAT>(p_spawn->ManaCurrent) / static_cast<FLOAT>(p_spawn->ManaMax) * 100);
+				p_arg->aggro_percent = static_cast<uint8_t>(pAggroInfo->aggroData[AD_Player].AggroPct + 0.5);
+				p_arg->zoning        = gbInZone ? 0 : 1;
+
+                // Copy directly to memory
+				memcpy(bytes, p_arg, struct_size);
+
+                WriteChatf("Sending");
+
+				m_p_socket->Send(bytes, struct_size);
+			}
+		}
 	}
 
 private:
-	SOCKET m_socket;
-	struct sockaddr_in m_server_addr;
-	WSAData m_wsa;
+	static constexpr uint32_t max_size    = 4096;
+	static constexpr uint32_t struct_size = sizeof(SpawnData);
+
+	std::atomic<bool> m_is_running;
+	std::thread* m_p_send_thread;
+	std::thread* m_p_recv_thread;
+	UDPSocket* m_p_socket;
 };

@@ -1,2 +1,3 @@
 ﻿  Client.cpp
-  MQ2Stats.vcxproj -> E:\MQ2\macroquest2\MQ2Stats\..\Release\MQ2Stats.dll
+  UDPSocket.cpp
+LINK : fatal error LNK1168: cannot open ..\Release\MQ2Stats.dll for writing
